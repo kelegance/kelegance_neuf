@@ -1,0 +1,24 @@
+name: kelegance_neuf
+description: "Projet Kélégance - VTC"
+publish_to: 'none'
+
+version: 1.0.0+1
+
+environment:
+  sdk: ^3.11.5
+
+dependencies:
+  flutter:
+    sdk: flutter
+  cupertino_icons: ^1.0.8
+  google_maps_flutter: ^2.5.3
+  http: ^1.1.0
+  location: ^5.0.3
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^6.0.0
+
+flutter:
+  uses-material-design: true
