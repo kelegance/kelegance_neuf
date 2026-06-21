@@ -1,0 +1,20 @@
+{
+  "name": "kelegance-neuf",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Kélégance Prestige — outils Firebase (Hosting documents clients)",
+  "scripts": {
+    "firebase": "firebase",
+    "firebase:login-ci": "powershell -ExecutionPolicy Bypass -File scripts/firebase-login-ci.ps1",
+    "deploy:web": "node scripts/deploy-web.mjs",
+    "deploy:hosting": "npm run deploy:web",
+    "deploy:hosting:only": "node scripts/deploy-hosting-only.mjs",
+    "deploy:functions": "firebase deploy --only functions",
+    "deploy": "npm run deploy:web && firebase deploy --only functions",
+    "login": "firebase login --reauth",
+    "test:deeplinks": "node scripts/test-deep-links.mjs"
+  },
+  "devDependencies": {
+    "firebase-tools": "^15.22.0"
+  }
+}

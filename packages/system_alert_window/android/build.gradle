@@ -1,0 +1,45 @@
+group 'in.jvapps.system_alert_window'
+version '1.0-SNAPSHOT'
+
+buildscript {
+    repositories {
+        google()
+        mavenCentral()
+    }
+
+    dependencies {
+        classpath 'com.android.tools.build:gradle:8.7.3'
+    }
+}
+
+rootProject.allprojects {
+    repositories {
+        google()
+        mavenCentral()
+    }
+}
+
+apply plugin: 'com.android.library'
+
+android {
+    namespace 'in.jvapps.system_alert_window'
+    compileSdk 36
+    defaultConfig {
+        minSdk 21
+        targetSdk 36
+        testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
+    }
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_1_8
+        targetCompatibility JavaVersion.VERSION_1_8
+    }
+    lintOptions {
+        disable 'InvalidPackage'
+    }
+}
+
+dependencies {
+    //implementation files('localLib/flutter.jar')
+    implementation 'androidx.appcompat:appcompat:1.6.1'
+    implementation 'com.google.code.gson:gson:2.11.0'
+}

@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "766009026310",
+    "project_id": "kelegance",
+    "storage_bucket": "kelegance.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:766009026310:android:b946e46303eff6fc8a6087",
+        "android_client_info": {
+          "package_name": "com.example.kelegance_neuf"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyA_nEkKQdkdCP_u_n1EzLGh0T87Yvuu3Z4"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

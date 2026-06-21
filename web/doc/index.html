@@ -1,0 +1,120 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Document — KELEGANCE PRESTIGE</title>
+  <style>
+    body {
+      margin: 0;
+      min-height: 100vh;
+      background: #0B1426;
+      font-family: 'Segoe UI', sans-serif;
+      color: #F5F0E6;
+    }
+    #loader {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      min-height: 100vh;
+      gap: 16px;
+    }
+    #loader p { color: rgba(245,240,230,0.55); font-size: 13px; letter-spacing: 1px; }
+    .spinner {
+      width: 36px; height: 36px;
+      border: 2px solid rgba(212,175,55,0.25);
+      border-top-color: #D4AF37;
+      border-radius: 50%;
+      animation: spin 0.8s linear infinite;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+    #erreur {
+      display: none;
+      max-width: 480px;
+      margin: 80px auto;
+      padding: 32px;
+      text-align: center;
+      border: 1px solid rgba(212,175,55,0.4);
+      border-radius: 12px;
+      background: #121E33;
+    }
+    #erreur h1 { color: #D4AF37; font-size: 18px; font-weight: 300; letter-spacing: 2px; }
+    #erreur p { color: rgba(245,240,230,0.6); font-size: 13px; margin-top: 12px; }
+    #erreur a { color: #D4AF37; }
+    #contenu { display: none; }
+  </style>
+</head>
+<body>
+  <div id="loader">
+    <div class="spinner"></div>
+    <p>Chargement du document Kélégance…</p>
+  </div>
+  <div id="erreur">
+    <h1>KELEGANCE PRESTIGE</h1>
+    <p id="message-erreur">Document introuvable ou lien expiré.</p>
+    <p style="margin-top:20px"><a href="mailto:admin@kelegance-prestige.com">admin@kelegance-prestige.com</a></p>
+  </div>
+  <div id="contenu"></div>
+
+  <script type="module">
+    import { initializeApp } from 'https://www.gstatic.com/firebasejs/10.14.1/firebase-app.js';
+    import { getFirestore, doc, getDoc } from 'https://www.gstatic.com/firebasejs/10.14.1/firebase-firestore.js';
+
+    const firebaseConfig = {
+      apiKey: 'AIzaSyAnoBWmYeMAUF1X6Rg2NRTgWzdVSLowaro',
+      authDomain: 'kelegance.firebaseapp.com',
+      projectId: 'kelegance',
+      storageBucket: 'kelegance.firebasestorage.app',
+      messagingSenderId: '766009026310',
+      appId: '1:766009026310:web:e7e3e6c8fa24cd2d8a6087',
+    };
+
+    const token = window.location.pathname.split('/').filter(Boolean).pop();
+    const loader = document.getElementById('loader');
+    const erreur = document.getElementById('erreur');
+    const contenu = document.getElementById('contenu');
+
+    function afficherErreur(msg) {
+      loader.style.display = 'none';
+      document.getElementById('message-erreur').textContent = msg;
+      erreur.style.display = 'block';
+    }
+
+    if (!token || token === 'doc') {
+      afficherErreur('Lien invalide — token manquant.');
+    } else {
+      try {
+        const app = initializeApp(firebaseConfig);
+        const db = getFirestore(app);
+        getDoc(doc(db, 'documents_client', token)).then((snap) => {
+          if (!snap.exists()) {
+            afficherErreur('Document introuvable. Contactez Kélégance Prestige.');
+            return;
+          }
+          const data = snap.data();
+          const html = data.htmlContenu;
+          if (!html) {
+            afficherErreur('Document en cours de génération. Réessayez dans quelques instants.');
+            return;
+          }
+          loader.style.display = 'none';
+          contenu.style.display = 'block';
+          contenu.innerHTML = html;
+          document.title = (data.titre || 'Document') + ' — KELEGANCE PRESTIGE';
+        }).catch((err) => {
+          console.error('Firestore getDoc error:', err);
+          const code = err?.code || '';
+          if (code === 'permission-denied') {
+            afficherErreur('Accès refusé au document (règles Firestore). Contactez Kélégance Prestige.');
+          } else {
+            afficherErreur('Impossible de charger le document. Vérifiez votre connexion.');
+          }
+        });
+      } catch (e) {
+        afficherErreur('Erreur technique : ' + e.message);
+      }
+    }
+  </script>
+</body>
+</html>

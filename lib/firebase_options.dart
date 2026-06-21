@@ -9,11 +9,12 @@ class DefaultFirebaseOptions {
   }
 
   static const FirebaseOptions web = FirebaseOptions(
-    apiKey: 'METS_TON_ANCIENNE_API_KEY_ICI',
-    authDomain: 'kelegance-vtc.firebaseapp.com',
-    projectId: 'kelegance-vtc',
-    storageBucket: 'kelegance-vtc.appspot.com',
-    messagingSenderId: 'METS_TON_ANCIEN_SENDER_ID_ICI',
-    appId: 'METS_TON_ANCIEN_APP_ID_ICI',
+    apiKey: 'AIzaSyAnoBWmYeMAUF1X6Rg2NRTgWzdVSLowaro',
+    authDomain: 'kelegance.firebaseapp.com',
+    projectId: 'kelegance',
+    storageBucket: 'kelegance.firebasestorage.app',
+    messagingSenderId: '766009026310',
+    appId: '1:766009026310:web:e7e3e6c8fa24cd2d8a6087',
+    measurementId: 'G-5Z74K3NM09',
   );
 }

@@ -1,0 +1,16 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Liens publics https://kelegance.web.app/doc/{token} — lecture sans auth
+    match /documents_client/{token} {
+      allow read: if true;
+      allow write: if false;
+    }
+
+    // Reste des collections — inchangé (app authentifiée)
+    match /{document=**} {
+      allow read, write: if true;
+    }
+  }
+}

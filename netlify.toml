@@ -1,0 +1,13 @@
+[build]
+  command = "flutter pub get && flutter build web --release --base-href=/ --dart-define=KELEGANCE_WEB_ORIGIN=https://cheerful-salamander-565dfc.netlify.app && node scripts/inject-pwa-cache.mjs"
+  publish = "build/web"
+
+[[redirects]]
+  from = "/doc/*"
+  to = "/doc/index.html"
+  status = 200
+
+[[redirects]]
+  from = "/*"
+  to = "/index.html"
+  status = 200
