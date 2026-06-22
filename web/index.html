@@ -72,6 +72,9 @@
 
   <link rel="manifest" href="manifest.json">
 
+  <!-- Google Maps JavaScript API — requis pour google_maps_flutter sur le Web -->
+  <script src="https://maps.googleapis.com/maps/api/js?key=AIzaSyCM_g7NBu0L8WZDi8SuJTyt2wiilbCvfmI"></script>
+
   <!-- Cache hors-ligne : flutter_service_worker.js injecté au build (scripts/inject-pwa-cache.mjs). -->
 
   <style>
@@ -86,6 +89,13 @@
 
     }
 
+    flutter-view,
+    flt-glass-pane,
+    flt-scene-host,
+    flt-semantics-host {
+      background-color: #0B1426 !important;
+    }
+
     #kelegance-loader {
 
       display: flex;
@@ -97,6 +107,8 @@
       justify-content: center;
 
       height: 100%;
+
+      background: #0B1426;
 
       color: #D4AF37;
 
@@ -163,7 +175,12 @@
   -->
 
   <script src="flutter_bootstrap.js" async></script>
-
+  <script>
+    window.addEventListener('flutter-first-frame', function () {
+      var loader = document.getElementById('kelegance-loader');
+      if (loader) loader.remove();
+    });
+  </script>
 </body>
 
 </html>

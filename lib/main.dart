@@ -71,7 +71,10 @@ void _configurerStrategieUrlWeb() {
 
 class KeleganceConfig {
   static const String version = '7.0.1';
-  static const String googleMapsApiKey = "AIzaSyCM_g7NBu0L8WZDi8SuJTyt2wiilbCvfmI";
+  static const String googleMapsApiKey = String.fromEnvironment(
+    'GOOGLE_MAPS_API_KEY',
+    defaultValue: 'AIzaSyCM_g7NBu0L8WZDi8SuJTyt2wiilbCvfmI',
+  );
   static const String libelleForfaitAeroGare = 'Forfait Aéroport / Gare détecté et configuré';
   static const String emailAdmin = KeleganceIdentiteDocuments.emailAdmin;
   static const String whatsappPrestige = KeleganceIdentiteDocuments.whatsappPrestige;
@@ -1389,14 +1392,29 @@ class KeleganceApp extends StatelessWidget {
       debugShowCheckedModeBanner: false,
       theme: ThemeData(
         brightness: Brightness.dark,
-        primaryColor: Colors.amber,
-        scaffoldBackgroundColor: const Color(0xFF000000),
+        primaryColor: KeleganceConfig.or,
+        scaffoldBackgroundColor: KeleganceConfig.minuitBleu,
+        canvasColor: KeleganceConfig.minuitBleu,
         colorScheme: const ColorScheme.dark(
-          primary: Colors.amber,
-          secondary: Colors.amberAccent,
-          surface: Colors.black,
+          primary: KeleganceConfig.or,
+          onPrimary: KeleganceConfig.noirProfond,
+          secondary: KeleganceConfig.or,
+          surface: KeleganceConfig.minuitBleu,
+          onSurface: KeleganceConfig.blancCasse,
+          background: KeleganceConfig.minuitBleu,
+          onBackground: KeleganceConfig.blancCasse,
         ),
-        appBarTheme: const AppBarTheme(backgroundColor: Colors.black, elevation: 0)
+        appBarTheme: const AppBarTheme(
+          backgroundColor: KeleganceConfig.minuitBleu,
+          elevation: 0,
+          surfaceTintColor: Colors.transparent,
+        ),
+        dialogTheme: const DialogThemeData(
+          backgroundColor: KeleganceConfig.minuitBleuClair,
+        ),
+        bottomSheetTheme: const BottomSheetThemeData(
+          backgroundColor: KeleganceConfig.minuitBleuClair,
+        ),
       ),
       initialRoute: KeleganceRouter.routeInitiale(),
       onGenerateRoute: (settings) {
@@ -1499,8 +1517,8 @@ class _KeleganceAuthGateState extends State<KeleganceAuthGate> {
   Widget build(BuildContext context) {
     if (_user != null && _resolvingRole) {
       return const Scaffold(
-        backgroundColor: Colors.black,
-        body: Center(child: CircularProgressIndicator(color: Colors.amber)),
+        backgroundColor: KeleganceConfig.minuitBleu,
+        body: Center(child: CircularProgressIndicator(color: KeleganceConfig.or)),
       );
     }
     if (_user == null) {
@@ -1624,9 +1642,9 @@ class _PageSalonState extends State<PageSalon> {
         height: double.infinity,
         decoration: const BoxDecoration(
           gradient: LinearGradient(
-            begin: Alignment.topCenter, 
-            colors: [Colors.black, Colors.black87]
-          )
+            begin: Alignment.topCenter,
+            colors: [KeleganceConfig.minuitBleu, KeleganceConfig.minuitBleuClair],
+          ),
         ),
         child: SafeArea(
           child: SingleChildScrollView(
@@ -1800,7 +1818,7 @@ class _PageLoginConsoleState extends State<PageLoginConsole> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: Colors.black,
+      backgroundColor: KeleganceConfig.minuitBleu,
       appBar: AppBar(
         backgroundColor: Colors.transparent,
         elevation: 0, 
@@ -2260,7 +2278,7 @@ class _PageClientState extends State<PageClient> with SingleTickerProviderStateM
   void _showHelpModal(BuildContext context) {
     showModalBottomSheet(
       context: context,
-      backgroundColor: Colors.grey[900],
+      backgroundColor: KeleganceConfig.minuitBleuClair,
       shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
       builder: (context) => Container(
         padding: const EdgeInsets.all(20),
@@ -2292,6 +2310,7 @@ class _PageClientState extends State<PageClient> with SingleTickerProviderStateM
     final AuthService authService = AuthService();
 
     return Scaffold(
+      backgroundColor: KeleganceConfig.minuitBleu,
       appBar: AppBar(
         title: const Text("ESPACE CLIENT"),
         centerTitle: true,
