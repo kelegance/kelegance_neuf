@@ -88,6 +88,8 @@ class KeleganceConfig {
     defaultValue: 'AIzaSyCM_g7NBu0L8WZDi8SuJTyt2wiilbCvfmI',
   );
   static const String libelleForfaitAeroGare = 'Forfait Aéroport / Gare détecté et configuré';
+  static const int capacitePassagersMax = 4;
+  static const String libelleCapacitePassagers = 'Capacité : 4 passagers maximum';
   static const String emailAdmin = KeleganceIdentiteDocuments.emailAdmin;
   static const String whatsappPrestige = KeleganceIdentiteDocuments.whatsappPrestige;
   static const String exploitant = KeleganceIdentiteDocuments.exploitant;
@@ -1993,6 +1995,34 @@ class _PageClientState extends State<PageClient> with SingleTickerProviderStateM
     }
   }
 
+  Widget _buildBadgeCapaciteVehicule() {
+    return Container(
+      margin: const EdgeInsets.only(top: 12),
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+      decoration: BoxDecoration(
+        color: KeleganceConfig.minuitBleuClair.withOpacity(0.72),
+        borderRadius: BorderRadius.circular(KeleganceConfig.rayonBoutonPremium),
+        border: Border.all(color: KeleganceConfig.or.withOpacity(0.32)),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(Icons.airline_seat_recline_extra, color: KeleganceConfig.or.withOpacity(0.88), size: 16),
+          const SizedBox(width: 8),
+          Text(
+            KeleganceConfig.libelleCapacitePassagers,
+            style: TextStyle(
+              color: KeleganceConfig.blancCasse.withOpacity(0.8),
+              fontSize: 11,
+              fontWeight: FontWeight.w400,
+              letterSpacing: 0.45,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
   Widget _buildAlerteTarifClient() {
     if (_calculTarifEnCours) {
       return Container(
@@ -2391,6 +2421,7 @@ class _PageClientState extends State<PageClient> with SingleTickerProviderStateM
                           letterSpacing: 0.5,
                         ),
                       ),
+                      _buildBadgeCapaciteVehicule(),
                     ],
                   ),
                 ),
@@ -4036,15 +4067,34 @@ class _PageClientState extends State<PageClient> with SingleTickerProviderStateM
       padding: const EdgeInsets.all(15),
       margin: const EdgeInsets.symmetric(vertical: 10),
       decoration: BoxDecoration(
-        color: Colors.grey[900],
-        borderRadius: BorderRadius.circular(8),
-        border: Border.all(color: Colors.white10),
+        color: KeleganceConfig.minuitBleuClair.withOpacity(0.55),
+        borderRadius: BorderRadius.circular(KeleganceConfig.rayonBoutonPremium),
+        border: Border.all(color: KeleganceConfig.or.withOpacity(0.22)),
       ),
-      child: Row(
-        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          Text("Estimation ($trips trajet(s)) :", style: const TextStyle(color: Colors.white70)),
-          Text("${total.toStringAsFixed(2)} €", style: const TextStyle(color: Colors.amber, fontWeight: FontWeight.bold, fontSize: 18)),
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Text("Estimation ($trips trajet(s)) :", style: TextStyle(color: KeleganceConfig.blancCasse.withOpacity(0.72))),
+              Text(
+                "${total.toStringAsFixed(2)} €",
+                style: const TextStyle(color: KeleganceConfig.or, fontWeight: FontWeight.bold, fontSize: 18),
+              ),
+            ],
+          ),
+          const SizedBox(height: 8),
+          Text(
+            KeleganceConfig.libelleCapacitePassagers,
+            textAlign: TextAlign.right,
+            style: TextStyle(
+              color: KeleganceConfig.or.withOpacity(0.58),
+              fontSize: 10,
+              fontWeight: FontWeight.w400,
+              letterSpacing: 0.35,
+            ),
+          ),
         ],
       ),
     );
