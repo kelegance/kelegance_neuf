@@ -25,6 +25,8 @@ import 'package:url_launcher/url_launcher.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:http/http.dart' as http;
 import 'package:google_maps_flutter/google_maps_flutter.dart';
+import 'package:google_maps_flutter_android/google_maps_flutter_android.dart';
+import 'package:google_maps_flutter_platform_interface/google_maps_flutter_platform_interface.dart';
 import 'package:system_alert_window/system_alert_window.dart';
 import 'package:audioplayers/audioplayers.dart';
 import 'package:printing/printing.dart';
@@ -45,6 +47,7 @@ void main() async {
 
   await AuthService.configurerPersistance();
   await KeleganceDeepLink.capturerLiensEntrants();
+  await _configurerRenduCarteMobile();
 
   if (keleganceEstAndroid) {
     await KeleganceOverlayCourse.initialiserPermissions();
@@ -66,6 +69,15 @@ void _configurerStrategieUrlWeb() {
       debugPrint('Kelegance URL strategy: $e\n$st');
     }
     // Repli implicite sur la stratégie hash (#/) si <base href> est invalide.
+  }
+}
+
+/// Rendu carte Android — moteur le plus récent (3D / bâtiments haute qualité).
+Future<void> _configurerRenduCarteMobile() async {
+  if (kIsWeb || !keleganceEstAndroid) return;
+  final implementation = GoogleMapsFlutterPlatform.instance;
+  if (implementation is GoogleMapsFlutterAndroid) {
+    await implementation.initializeWithRenderer(AndroidMapRenderer.latest);
   }
 }
 
@@ -4870,6 +4882,7 @@ class _PageConsoleState extends State<PageConsole> with WidgetsBindingObserver {
   bool _showRecenterButton = false;
   bool _recentrageProgramme = false;
   bool _carteManipuleeManuellement = false;
+  LatLng? _dernierCentreCarte;
 
   final ScrollController _scrollHistorique = ScrollController();
   final ScrollController _scrollRevenus = ScrollController();
@@ -5348,6 +5361,9 @@ class _PageConsoleState extends State<PageConsole> with WidgetsBindingObserver {
       );
     } finally {
       _recentrageProgramme = false;
+      if (mounted) {
+        _majVisibiliteBoutonRecentrage(_currentPosition);
+      }
     }
   }
 
@@ -5671,9 +5687,35 @@ class _PageConsoleState extends State<PageConsole> with WidgetsBindingObserver {
   static const double _zoomCarteChauffeur = 18.5;
   static const double _tiltCarteChauffeur = 58.0;
   static const double _paddingCarteBandeauCourse = 220.0;
+  static const double _seuilDecalageRecentrageMetres = 28.0;
+
+  double _distanceCarteChauffeurMetres(LatLng mapCenter) {
+    return Geolocator.distanceBetween(
+      mapCenter.latitude,
+      mapCenter.longitude,
+      _currentPosition.latitude,
+      _currentPosition.longitude,
+    );
+  }
+
+  bool _carteDecaleeDuChauffeur(LatLng mapCenter) {
+    return _distanceCarteChauffeurMetres(mapCenter) > _seuilDecalageRecentrageMetres;
+  }
+
+  void _majVisibiliteBoutonRecentrage(LatLng mapCenter) {
+    if (_ecran != _EcranChauffeur.accueil || _recentrageProgramme) return;
+
+    final decalee = _carteDecaleeDuChauffeur(mapCenter);
+    if (decalee == _showRecenterButton && decalee == _carteManipuleeManuellement) return;
+
+    setState(() {
+      _showRecenterButton = decalee;
+      _carteManipuleeManuellement = decalee;
+    });
+  }
 
   Widget _buildCarte3DFond() {
-    // v4.0.0 — Suivi GPS auto ; recentrage visible uniquement au geste doigt (onCameraMoveStarted).
+    // v4.1.0 — Bouton recentrage visible uniquement si le centre carte ≠ position chauffeur.
     return LayoutBuilder(
       builder: (context, constraints) {
         return SizedBox(
@@ -5694,6 +5736,7 @@ class _PageConsoleState extends State<PageConsole> with WidgetsBindingObserver {
             circles: const {},
             mapType: MapType.normal,
             style: KeleganceCarteStyle.sombreOr,
+            buildingsEnabled: true,
             myLocationEnabled: false,
             myLocationButtonEnabled: false,
             zoomControlsEnabled: false,
@@ -5703,13 +5746,14 @@ class _PageConsoleState extends State<PageConsole> with WidgetsBindingObserver {
             tiltGesturesEnabled: true,
             scrollGesturesEnabled: true,
             zoomGesturesEnabled: true,
-            onCameraMoveStarted: () {
-              if (_ecran != _EcranChauffeur.accueil || _recentrageProgramme) return;
-              if (!_showRecenterButton) {
-                setState(() {
-                  _carteManipuleeManuellement = true;
-                  _showRecenterButton = true;
-                });
+            onCameraMove: (position) {
+              _dernierCentreCarte = position.target;
+              _majVisibiliteBoutonRecentrage(position.target);
+            },
+            onCameraIdle: () {
+              final centre = _dernierCentreCarte;
+              if (centre != null) {
+                _majVisibiliteBoutonRecentrage(centre);
               }
             },
             onMapCreated: (controller) {
@@ -5742,7 +5786,10 @@ class _PageConsoleState extends State<PageConsole> with WidgetsBindingObserver {
         ),
       );
     } finally {
-      if (mounted) setState(() => _recentrageProgramme = false);
+      if (mounted) {
+        setState(() => _recentrageProgramme = false);
+        _majVisibiliteBoutonRecentrage(_currentPosition);
+      }
     }
   }
 
