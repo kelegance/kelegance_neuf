@@ -11,7 +11,9 @@
   publish = "build/web"
 
 [build.environment]
-  NODE_VERSION = "20"
+  NODE_VERSION = "22"
+  # Évite l’échec npm si NODE_OPTIONS est défini dans l’UI Netlify avec des flags non autorisés.
+  NODE_OPTIONS = ""
   # Chemin du SDK Flutter (mis en cache entre les builds Netlify).
   FLUTTER_ROOT = "/opt/buildhome/flutter"
 
