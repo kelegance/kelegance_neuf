@@ -25,6 +25,7 @@ if [ -n "${GOOGLE_MAPS_API_KEY:-}" ]; then
 fi
 
 flutter pub get
+dart run flutter_launcher_icons
 flutter build web --release \
   --base-href=/ \
   --dart-define=KELEGANCE_WEB_ORIGIN="${WEB_ORIGIN}" \
