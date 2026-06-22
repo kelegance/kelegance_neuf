@@ -1,6 +1,19 @@
+# Kelegance — déploiement Flutter Web sur Netlify
+
+[[plugins]]
+  package = "netlify-plugin-flutter"
+
+  [plugins.inputs]
+    channel = "stable"
+
 [build]
-  command = "flutter pub get && flutter build web --release --base-href=/ --dart-define=KELEGANCE_WEB_ORIGIN=https://cheerful-salamander-565dfc.netlify.app && node scripts/inject-pwa-cache.mjs"
+  command = "bash scripts/netlify-build.sh"
   publish = "build/web"
+
+[build.environment]
+  NODE_VERSION = "20"
+  # Chemin du SDK Flutter (mis en cache entre les builds Netlify).
+  FLUTTER_ROOT = "/opt/buildhome/flutter"
 
 [[redirects]]
   from = "/doc/*"
