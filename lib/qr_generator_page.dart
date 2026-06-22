@@ -1,16 +1,7 @@
 import 'package:flutter/material.dart';
-import 'package:qr_flutter/qr_flutter.dart';
 
+import 'kelegance_qr_cadre_prestige.dart';
 import 'kelegance_qr_codes.dart';
-
-abstract final class _QrTheme {
-  static const Color fond = Color(0xFF0B1426);
-  static const Color fondCarte = Color(0xFF121E33);
-  static const Color or = Color(0xFFD4AF37);
-  static const Color textePrincipal = Color(0xFFF5F0E6);
-  static const Color texteDiscret = Color(0x99F5F0E6);
-  static const double rayonBouton = 10.0;
-}
 
 /// Page admin — génération des QR codes Client et Bras Droit.
 class QrGeneratorPage extends StatefulWidget {
@@ -45,7 +36,7 @@ class _QrGeneratorPageState extends State<QrGeneratorPage> {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
           backgroundColor: Colors.green,
-          content: Text('QR code exporté — enregistrez ou partagez le PNG.'),
+          content: Text('QR code Prestige exporté — enregistrez ou partagez le PNG.'),
         ),
       );
     } catch (e) {
@@ -62,11 +53,11 @@ class _QrGeneratorPageState extends State<QrGeneratorPage> {
   Widget build(BuildContext context) {
     if (!KeleganceQrCodes.utilisateurEstAdmin()) {
       return Scaffold(
-        backgroundColor: _QrTheme.fond,
+        backgroundColor: KeleganceQrTheme.fond,
         appBar: AppBar(
           backgroundColor: Colors.transparent,
           elevation: 0,
-          iconTheme: const IconThemeData(color: _QrTheme.or),
+          iconTheme: const IconThemeData(color: KeleganceQrTheme.or),
         ),
         body: const Center(
           child: Padding(
@@ -74,7 +65,7 @@ class _QrGeneratorPageState extends State<QrGeneratorPage> {
             child: Text(
               'Accès réservé à l\'administrateur Kelegance.',
               textAlign: TextAlign.center,
-              style: TextStyle(color: _QrTheme.texteDiscret, fontSize: 14),
+              style: TextStyle(color: KeleganceQrTheme.texteDiscret, fontSize: 14),
             ),
           ),
         ),
@@ -82,10 +73,10 @@ class _QrGeneratorPageState extends State<QrGeneratorPage> {
     }
 
     final url = KeleganceQrCodes.urlPour(_typeSelectionne);
-    const or = _QrTheme.or;
+    const or = KeleganceQrTheme.or;
 
     return Scaffold(
-      backgroundColor: _QrTheme.fond,
+      backgroundColor: KeleganceQrTheme.fond,
       appBar: AppBar(
         backgroundColor: Colors.transparent,
         elevation: 0,
@@ -93,7 +84,7 @@ class _QrGeneratorPageState extends State<QrGeneratorPage> {
         title: const Text(
           'QR CODES PRESTIGE',
           style: TextStyle(
-            color: _QrTheme.or,
+            color: KeleganceQrTheme.or,
             fontSize: 13,
             fontWeight: FontWeight.w500,
             letterSpacing: 2.2,
@@ -111,7 +102,7 @@ class _QrGeneratorPageState extends State<QrGeneratorPage> {
                 'Générez les codes d\'accès directs pour vos clients et vos Bras Droits.',
                 textAlign: TextAlign.center,
                 style: TextStyle(
-                  color: _QrTheme.textePrincipal.withOpacity(0.55),
+                  color: KeleganceQrTheme.textePrincipal.withOpacity(0.55),
                   fontSize: 12,
                   height: 1.45,
                 ),
@@ -134,7 +125,7 @@ class _QrGeneratorPageState extends State<QrGeneratorPage> {
                       type: KeleganceQrType.brasDroit,
                       titre: 'BRAS DROIT',
                       sousTitre: '/gestion',
-                      couleurFond: _QrTheme.fondCarte,
+                      couleurFond: KeleganceQrTheme.fondCarte,
                       couleurTexte: or,
                       bordureOr: true,
                     ),
@@ -143,53 +134,18 @@ class _QrGeneratorPageState extends State<QrGeneratorPage> {
               ),
               const SizedBox(height: 32),
               Center(
-                child: Container(
-                  padding: const EdgeInsets.all(18),
-                  decoration: BoxDecoration(
-                    color: Colors.white,
-                    borderRadius: BorderRadius.circular(_QrTheme.rayonBouton + 4),
-                    border: Border.all(color: or.withOpacity(0.3)),
-                    boxShadow: [
-                      BoxShadow(
-                        color: or.withOpacity(0.08),
-                        blurRadius: 24,
-                        offset: const Offset(0, 8),
-                      ),
-                    ],
-                  ),
-                  child: QrImageView(
-                    data: url,
-                    size: KeleganceQrCodes.tailleApercu,
-                    backgroundColor: Colors.white,
-                    eyeStyle: KeleganceQrCodes.styleYeux,
-                    dataModuleStyle: KeleganceQrCodes.styleModules,
-                    embeddedImage: _logo,
-                    embeddedImageStyle: const QrEmbeddedImageStyle(
-                      size: Size(
-                        KeleganceQrCodes.tailleLogoCentre,
-                        KeleganceQrCodes.tailleLogoCentre,
-                      ),
-                    ),
-                  ),
+                child: KeleganceQrCadrePrestige(
+                  type: _typeSelectionne,
+                  url: url,
+                  logo: _logo,
                 ),
               ),
               const SizedBox(height: 18),
-              Text(
-                KeleganceQrCodes.libellePour(_typeSelectionne).toUpperCase(),
-                textAlign: TextAlign.center,
-                style: const TextStyle(
-                  color: _QrTheme.or,
-                  fontSize: 11,
-                  fontWeight: FontWeight.w500,
-                  letterSpacing: 2.2,
-                ),
-              ),
-              const SizedBox(height: 8),
               SelectableText(
                 url,
                 textAlign: TextAlign.center,
                 style: TextStyle(
-                  color: _QrTheme.textePrincipal.withOpacity(0.72),
+                  color: KeleganceQrTheme.textePrincipal.withOpacity(0.72),
                   fontSize: 12,
                 ),
               ),
@@ -206,7 +162,7 @@ class _QrGeneratorPageState extends State<QrGeneratorPage> {
                         side: BorderSide(color: or.withOpacity(0.45)),
                         padding: const EdgeInsets.symmetric(vertical: 14),
                         shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(_QrTheme.rayonBouton),
+                          borderRadius: BorderRadius.circular(KeleganceQrTheme.rayonBouton),
                         ),
                       ),
                     ),
@@ -231,7 +187,7 @@ class _QrGeneratorPageState extends State<QrGeneratorPage> {
                         foregroundColor: Colors.black,
                         padding: const EdgeInsets.symmetric(vertical: 14),
                         shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(_QrTheme.rayonBouton),
+                          borderRadius: BorderRadius.circular(KeleganceQrTheme.rayonBouton),
                         ),
                       ),
                     ),
@@ -254,18 +210,18 @@ class _QrGeneratorPageState extends State<QrGeneratorPage> {
     bool bordureOr = false,
   }) {
     final selectionne = _typeSelectionne == type;
-    const or = _QrTheme.or;
+    const or = KeleganceQrTheme.or;
 
     return Material(
       color: selectionne ? couleurFond : couleurFond.withOpacity(0.35),
-      borderRadius: BorderRadius.circular(_QrTheme.rayonBouton),
+      borderRadius: BorderRadius.circular(KeleganceQrTheme.rayonBouton),
       child: InkWell(
         onTap: () => setState(() => _typeSelectionne = type),
-        borderRadius: BorderRadius.circular(_QrTheme.rayonBouton),
+        borderRadius: BorderRadius.circular(KeleganceQrTheme.rayonBouton),
         child: Container(
           padding: const EdgeInsets.symmetric(vertical: 16, horizontal: 10),
           decoration: BoxDecoration(
-            borderRadius: BorderRadius.circular(_QrTheme.rayonBouton),
+            borderRadius: BorderRadius.circular(KeleganceQrTheme.rayonBouton),
             border: Border.all(
               color: bordureOr
                   ? (selectionne ? or : or.withOpacity(0.35))

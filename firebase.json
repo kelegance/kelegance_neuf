@@ -42,6 +42,22 @@
       {
         "source": "/mappy/**",
         "destination": "/index.html"
+      },
+      {
+        "source": "/gestion",
+        "destination": "/index.html"
+      },
+      {
+        "source": "/gestion/**",
+        "destination": "/index.html"
+      },
+      {
+        "source": "/admin/qrcodes",
+        "destination": "/index.html"
+      },
+      {
+        "source": "/admin/qrcodes/**",
+        "destination": "/index.html"
       }
     ]
   }
