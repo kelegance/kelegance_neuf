@@ -47,7 +47,7 @@ if (skipBuild) {
   console.log('(SKIP_FLUTTER_BUILD=1 — build Flutter ignoré)');
 } else {
   run('flutter', ['build', 'web', '--release'], 'flutter build web --release');
-  run('node', ['scripts/inject-pwa-cache.mjs'], 'Injection service worker PWA Kelegance');
+  run('node', ['scripts/strip-service-worker.mjs'], 'Désactivation service worker Flutter');
 }
 
 if (!existsSync(buildDir)) {
@@ -61,7 +61,7 @@ verifierAuthFirebase(root);
 run('npx', ['firebase', 'deploy', '--only', 'hosting'], 'firebase deploy --only hosting');
 
 console.log('\n✓ Déploiement terminé.');
-console.log('  Application : https://cheerful-salamander-565dfc.netlify.app');
-console.log('  QR client   : https://cheerful-salamander-565dfc.netlify.app/reserver');
+console.log('  Application : https://kelegance.web.app');
+console.log('  QR client   : https://kelegance.web.app/reserver');
 console.log('  Test auto   : npm run test:deeplinks');
 console.log('  Checklist   : docs/checklist-deep-links-pwa.md\n');

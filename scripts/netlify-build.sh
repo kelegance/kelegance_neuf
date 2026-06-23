@@ -31,4 +31,5 @@ flutter build web --release \
   --dart-define=KELEGANCE_WEB_ORIGIN="${WEB_ORIGIN}" \
   --dart-define=GOOGLE_MAPS_API_KEY="${GOOGLE_MAPS_KEY}"
 
-node scripts/inject-pwa-cache.mjs
+node scripts/strip-service-worker.mjs
+node scripts/verify-web-build.mjs

@@ -1,0 +1,12 @@
+# Kelegance — pas de cache agressif sur le shell Flutter (évite les versions figées).
+/index.html
+  Cache-Control: no-cache, no-store, must-revalidate
+  Pragma: no-cache
+
+/flutter_bootstrap.js
+  Cache-Control: no-cache, no-store, must-revalidate
+  Pragma: no-cache
+
+/flutter_service_worker.js
+  Cache-Control: no-cache, no-store, must-revalidate
+  X-Robots-Tag: noindex

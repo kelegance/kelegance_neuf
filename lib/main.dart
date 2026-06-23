@@ -5,6 +5,8 @@ import 'dart:ui';
 
 import 'auth_service.dart';
 import 'firebase_options.dart';
+import 'kelegance_adresse_autocomplete.dart';
+import 'kelegance_calendrier_multi_dates.dart';
 import 'kelegance_contenus.dart';
 import 'kelegance_deep_link.dart';
 import 'kelegance_documents_pdf_service.dart';
@@ -273,14 +275,17 @@ abstract final class KeleganceMissionTri {
 /// Communication chauffeur-client — v6.9.0 (WhatsApp Business Pro + appel direct).
 abstract final class KeleganceCommunication {
   static const String _packageWhatsAppBusinessAndroid = 'com.whatsapp.w4b';
-  static const String _prefixePro = 'Kelegance Prestige Pro';
+  static const String messageClientEnRoute =
+      'Bonjour, votre chauffeur KELEGANCE est en route vers vous';
+  static const String messageClientSurPlace =
+      'Bonjour, votre chauffeur KELEGANCE est arrivé à votre point de rendez-vous';
   static final RegExp _chiffresSeuls = RegExp(r'\D');
 
   static String messageProChauffeur({String? complement}) {
     if (complement != null && complement.isNotEmpty) {
-      return '$_prefixePro — $complement';
+      return complement;
     }
-    return '$_prefixePro — Bonjour, votre chauffeur Kelegance vous contacte.';
+    return 'Bonjour,';
   }
 
   static bool _ressembleNumero(String texte) {
@@ -1049,13 +1054,15 @@ abstract final class KeleganceGestionReservations {
                 style: const TextStyle(color: Colors.white),
                 decoration: const InputDecoration(labelText: 'Heure', labelStyle: TextStyle(color: Colors.white60)),
               ),
-              TextField(
+              KeleganceAdresseAutocomplete(
                 controller: departCtrl,
+                labelText: 'Lieu de prise en charge',
                 style: const TextStyle(color: Colors.white),
-                decoration: const InputDecoration(labelText: 'Départ', labelStyle: TextStyle(color: Colors.white60)),
+                decoration: const InputDecoration(labelText: 'Lieu de prise en charge', labelStyle: TextStyle(color: Colors.white60)),
               ),
-              TextField(
+              KeleganceAdresseAutocomplete(
                 controller: destCtrl,
+                labelText: 'Destination',
                 style: const TextStyle(color: Colors.white),
                 decoration: const InputDecoration(labelText: 'Destination', labelStyle: TextStyle(color: Colors.white60)),
               ),
@@ -1116,8 +1123,10 @@ abstract final class KeleganceGestionReservations {
               ),
               const SizedBox(height: 10),
             ],
-            TextField(
+            KeleganceAdresseAutocomplete(
               controller: escaleCtrl,
+              labelText: 'Nouvelle escale / étape',
+              hintText: 'Adresse intermédiaire',
               style: const TextStyle(color: Colors.white),
               decoration: const InputDecoration(
                 labelText: 'Nouvelle escale / étape',
@@ -1169,13 +1178,15 @@ abstract final class KeleganceGestionReservations {
             children: [
               const Text('Modifier l\'itinéraire si nécessaire :', style: TextStyle(color: Colors.amber, fontSize: 12)),
               const SizedBox(height: 8),
-              TextField(
+              KeleganceAdresseAutocomplete(
                 controller: departCtrl,
+                labelText: 'Lieu de prise en charge',
                 style: const TextStyle(color: Colors.white),
-                decoration: const InputDecoration(labelText: 'Départ', labelStyle: TextStyle(color: Colors.white60)),
+                decoration: const InputDecoration(labelText: 'Lieu de prise en charge', labelStyle: TextStyle(color: Colors.white60)),
               ),
-              TextField(
+              KeleganceAdresseAutocomplete(
                 controller: destCtrl,
+                labelText: 'Destination',
                 style: const TextStyle(color: Colors.white),
                 decoration: const InputDecoration(labelText: 'Destination', labelStyle: TextStyle(color: Colors.white60)),
               ),
@@ -2161,6 +2172,14 @@ class _PageClientState extends State<PageClient> with SingleTickerProviderStateM
     });
   }
 
+  void _invaliderItineraireClient() {
+    if (!_itineraireValide && _tarifVerrouille == null) return;
+    setState(() {
+      _itineraireValide = false;
+      _tarifVerrouille = null;
+    });
+  }
+
   Future<void> _validerItineraireEtCalculerPrix() async {
     final depart = _departController.text.trim();
     final arrivee = _destinationController.text.trim();
@@ -2169,7 +2188,7 @@ class _PageClientState extends State<PageClient> with SingleTickerProviderStateM
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
           backgroundColor: Colors.orange,
-          content: Text('Veuillez renseigner le départ et l\'arrivée avant de valider l\'itinéraire.'),
+          content: Text('Veuillez renseigner le lieu de prise en charge et la destination avant de valider l\'itinéraire.'),
         ),
       );
       return;
@@ -2257,14 +2276,12 @@ class _PageClientState extends State<PageClient> with SingleTickerProviderStateM
                     style: TextStyle(color: Colors.white54, fontSize: 12),
                   ),
                   const SizedBox(height: 12),
-                  CalendarDatePicker(
-                    initialDate: jourAffiche,
+                  KeleganceCalendrierMultiDates(
+                    selection: selection,
                     firstDate: DateTime.now(),
                     lastDate: DateTime(2027),
-                    onDateChanged: (d) {
-                      jourAffiche = d;
-                      basculerDate(d);
-                    },
+                    initialMonth: jourAffiche,
+                    onToggle: basculerDate,
                   ),
                   if (selection.isNotEmpty) ...[
                     const SizedBox(height: 8),
@@ -2276,8 +2293,8 @@ class _PageClientState extends State<PageClient> with SingleTickerProviderStateM
                           label: Text('${d.day}/${d.month}/${d.year}'),
                           deleteIcon: const Icon(Icons.close, size: 16),
                           onDeleted: () => setModalState(() => selection.remove(d)),
-                          backgroundColor: Colors.amber.withOpacity(0.12),
-                          labelStyle: const TextStyle(color: Colors.amber, fontSize: 12),
+                          backgroundColor: Colors.amber.withOpacity(0.85),
+                          labelStyle: const TextStyle(color: Colors.black, fontSize: 12, fontWeight: FontWeight.w600),
                         );
                       }).toList(),
                     ),
@@ -2427,27 +2444,19 @@ class _PageClientState extends State<PageClient> with SingleTickerProviderStateM
                 ),
                 const SizedBox(height: 22),
                 _buildBandeauMiroirClientReservation(),
-                _lbl("LIEU DE DÉPART"),
-                TextField(
+                _lbl("LIEU DE PRISE EN CHARGE"),
+                KeleganceAdresseAutocomplete(
                   controller: _departController,
-                  style: const TextStyle(color: Colors.white),
-                  decoration: const InputDecoration(
-                    hintText: "Ex: Chatou, 75017, Versailles...",
-                    filled: true,
-                    fillColor: Colors.white10
-                  ),
+                  hintText: "Ex: Chatou, 75017, Versailles...",
+                  onEdited: _invaliderItineraireClient,
                 ),
                 const SizedBox(height: 20),
 
-                _lbl("LIEU D'ARRIVÉE"),
-                TextField(
+                _lbl("DESTINATION"),
+                KeleganceAdresseAutocomplete(
                   controller: _destinationController,
-                  style: const TextStyle(color: Colors.white),
-                  decoration: const InputDecoration(
-                    hintText: "Aéroport, gare, ou adresse...",
-                    filled: true,
-                    fillColor: Colors.white10
-                  ),
+                  hintText: "Aéroport, gare, ou adresse...",
+                  onEdited: _invaliderItineraireClient,
                 ),
                 const SizedBox(height: 20),
 
@@ -2490,8 +2499,8 @@ class _PageClientState extends State<PageClient> with SingleTickerProviderStateM
                     children: _dates.map((d) {
                       return Chip(
                         label: Text('${d.day}/${d.month}/${d.year}', style: const TextStyle(fontSize: 11)),
-                        backgroundColor: Colors.amber.withOpacity(0.12),
-                        labelStyle: const TextStyle(color: Colors.amber),
+                        backgroundColor: Colors.amber.withOpacity(0.85),
+                        labelStyle: const TextStyle(color: Colors.black, fontSize: 11, fontWeight: FontWeight.w600),
                       );
                     }).toList(),
                   ),
@@ -2511,7 +2520,7 @@ class _PageClientState extends State<PageClient> with SingleTickerProviderStateM
                     subtitle: Text(
                       _modifierAdresseRetour
                           ? "Retour depuis la destination avec adresse personnalisée"
-                          : "Départ retour = arrivée aller · Arrivée retour = départ aller",
+                          : "Prise en charge retour = destination aller · Destination retour = lieu de prise en charge aller",
                       style: const TextStyle(color: Colors.white60, fontSize: 12),
                     ),
                     value: _reserverRetour,
@@ -2553,11 +2562,11 @@ class _PageClientState extends State<PageClient> with SingleTickerProviderStateM
                   ),
                   if (_modifierAdresseRetour) ...[
                     const SizedBox(height: 6),
-                    TextField(
+                    KeleganceAdresseAutocomplete(
                       controller: _adresseRetourController,
-                      style: const TextStyle(color: Colors.white, fontSize: 13),
+                      hintText: "Destination de retour",
                       decoration: InputDecoration(
-                        hintText: "Adresse de retour (destination)",
+                        hintText: "Destination de retour",
                         hintStyle: const TextStyle(color: Colors.white38, fontSize: 12),
                         filled: true,
                         fillColor: Colors.white.withOpacity(0.05),
@@ -2835,14 +2844,14 @@ class _PageClientState extends State<PageClient> with SingleTickerProviderStateM
     final s = statut.toUpperCase().replaceAll('É', 'E').trim();
     if (s == 'EN_ROUTE' || s == 'EN ROUTE') {
       return (
-        libelle: messageClient ?? 'Votre chauffeur Kelegance est en route vers vous',
+        libelle: KeleganceCommunication.messageClientEnRoute,
         couleur: const Color(0xFF42A5F5),
         icone: Icons.directions_car_filled_outlined,
       );
     }
     if (s == 'SUR PLACE') {
       return (
-        libelle: messageClient ?? 'Votre chauffeur Kelegance est sur place',
+        libelle: KeleganceCommunication.messageClientSurPlace,
         couleur: Colors.orange,
         icone: Icons.place_outlined,
       );
@@ -3420,8 +3429,8 @@ class _PageClientState extends State<PageClient> with SingleTickerProviderStateM
                 _buildModalRow("Client :", clientEmail),
                 _buildModalRow("Date de prise en charge :", dateText),
                 _buildModalRow("Heure de récupération :", heureText),
-                _buildModalRow("Lieu de départ :", depart),
-                _buildModalRow("Lieu d'arrivée :", destination),
+                _buildModalRow("Lieu de prise en charge :", depart),
+                _buildModalRow("Destination :", destination),
                 _buildModalRow("Prestation :", "Transport Public Particulier de Personnes"),
                 _buildModalRow("Tarif :", prixText),
                 
@@ -3964,18 +3973,20 @@ class _PageClientState extends State<PageClient> with SingleTickerProviderStateM
                   focusedBorder: UnderlineInputBorder(borderSide: BorderSide(color: Colors.amber)),
                 ),
               ),
-              TextField(
+              KeleganceAdresseAutocomplete(
                 controller: departCtrl,
+                labelText: "Lieu de prise en charge",
                 style: const TextStyle(color: Colors.white),
                 decoration: const InputDecoration(
-                  labelText: "Lieu de départ",
+                  labelText: "Lieu de prise en charge",
                   labelStyle: TextStyle(color: Colors.white54),
                   enabledBorder: UnderlineInputBorder(borderSide: BorderSide(color: Colors.white24)),
                   focusedBorder: UnderlineInputBorder(borderSide: BorderSide(color: Colors.amber)),
                 ),
               ),
-              TextField(
+              KeleganceAdresseAutocomplete(
                 controller: destCtrl,
+                labelText: "Destination",
                 style: const TextStyle(color: Colors.white),
                 decoration: const InputDecoration(
                   labelText: "Destination",
@@ -4407,6 +4418,11 @@ class _PageReservationInstantaneeState extends State<_PageReservationInstantanee
     });
   }
 
+  void _invaliderItineraireChauffeur() {
+    if (!_itineraireValide) return;
+    setState(() => _itineraireValide = false);
+  }
+
   Future<void> _validerItineraireEtCalculerDevis() async {
     final depart = _departCtrl.text.trim();
     final arrivee = _destCtrl.text.trim();
@@ -4414,7 +4430,7 @@ class _PageReservationInstantaneeState extends State<_PageReservationInstantanee
     if (depart.isEmpty || arrivee.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
-          content: Text('Renseignez le départ et la destination avant de valider l\'itinéraire.'),
+          content: Text('Renseignez le lieu de prise en charge et la destination avant de valider l\'itinéraire.'),
           backgroundColor: Color(0xFFD4AF37),
         ),
       );
@@ -4580,15 +4596,19 @@ class _PageReservationInstantaneeState extends State<_PageReservationInstantanee
               style: const TextStyle(color: Colors.white, fontSize: 13, fontWeight: FontWeight.w400),
               decoration: _champ('Date aller (JJ/MM/AAAA)'),
             ),
-            TextField(
+            KeleganceAdresseAutocomplete(
               controller: _departCtrl,
+              labelText: 'Lieu de prise en charge',
               style: const TextStyle(color: Colors.white, fontSize: 13, fontWeight: FontWeight.w400),
-              decoration: _champ('Lieu de départ'),
+              decoration: _champ('Lieu de prise en charge'),
+              onEdited: _invaliderItineraireChauffeur,
             ),
-            TextField(
+            KeleganceAdresseAutocomplete(
               controller: _destCtrl,
+              labelText: 'Destination',
               style: const TextStyle(color: Colors.white, fontSize: 13, fontWeight: FontWeight.w400),
               decoration: _champ('Destination'),
+              onEdited: _invaliderItineraireChauffeur,
             ),
             const SizedBox(height: 8),
             OutlinedButton(
@@ -4613,8 +4633,8 @@ class _PageReservationInstantaneeState extends State<_PageReservationInstantanee
               ),
               subtitle: Text(
                 _priseEnChargeRetourPersonnalisee
-                    ? 'Retour personnalisé : prise en charge différente de l\'arrivée aller'
-                    : 'Par défaut : retour depuis la destination vers le départ aller',
+                    ? 'Retour personnalisé : prise en charge différente de la destination aller'
+                    : 'Par défaut : retour depuis la destination vers le lieu de prise en charge aller',
                 style: const TextStyle(color: Colors.white54, fontSize: 11),
               ),
               value: _planifierRetour,
@@ -4650,8 +4670,9 @@ class _PageReservationInstantaneeState extends State<_PageReservationInstantanee
                 },
               ),
               if (_priseEnChargeRetourPersonnalisee)
-                TextField(
+                KeleganceAdresseAutocomplete(
                   controller: _departRetourCtrl,
+                  labelText: 'Prise en charge retour',
                   style: const TextStyle(color: Colors.white, fontSize: 13),
                   decoration: _champ('Prise en charge retour (adresse C)'),
                 ),
@@ -4994,11 +5015,7 @@ class _PageConsoleState extends State<PageConsole> with WidgetsBindingObserver {
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
-    if (state == AppLifecycleState.paused) {
-      if (_overlayNavigationAutorise) {
-        unawaited(_afficherOverlayNavigation());
-      }
-    } else if (state == AppLifecycleState.resumed) {
+    if (state == AppLifecycleState.resumed) {
       unawaited(_fermerOverlayCourse());
     }
   }
@@ -5123,8 +5140,6 @@ class _PageConsoleState extends State<PageConsole> with WidgetsBindingObserver {
     final trimmed = adresse.trim();
     if (trimmed.isEmpty) return;
 
-    unawaited(_afficherOverlayNavigation());
-
     if (_gpsDefaut == 'Waze') {
       unawaited(_ouvrirWazeNavigation(trimmed));
       return;
@@ -5204,7 +5219,7 @@ class _PageConsoleState extends State<PageConsole> with WidgetsBindingObserver {
       unawaited(_mettreAJourStatutCourse(
         docId,
         'EN_ROUTE',
-        messageClient: 'Votre chauffeur Kelegance est en route vers vous.',
+        messageClient: KeleganceCommunication.messageClientEnRoute,
       ));
       unawaited(_enrichirMissionChauffeur(docId));
     }
@@ -5445,7 +5460,7 @@ class _PageConsoleState extends State<PageConsole> with WidgetsBindingObserver {
     await _mettreAJourStatutCourse(
       _activeCourseId!,
       'SUR PLACE',
-      messageClient: 'Votre chauffeur Kelegance est sur place.',
+      messageClient: KeleganceCommunication.messageClientSurPlace,
     );
     if (!mounted) return;
     setState(() {
@@ -5627,7 +5642,7 @@ class _PageConsoleState extends State<PageConsole> with WidgetsBindingObserver {
     unawaited(_mettreAJourStatutCourse(
       docId,
       'EN_ROUTE',
-      messageClient: 'Votre chauffeur Kelegance est en route vers vous.',
+      messageClient: KeleganceCommunication.messageClientEnRoute,
     ));
     unawaited(_enrichirMissionChauffeur(docId));
 
@@ -6413,8 +6428,8 @@ class _PageConsoleState extends State<PageConsole> with WidgetsBindingObserver {
                 _buildModalRow('Client :', clientEmail),
                 _buildModalRow('Date de prise en charge :', dateText),
                 _buildModalRow('Heure de récupération :', heureText),
-                _buildModalRow('Lieu de départ :', depart),
-                _buildModalRow('Lieu d\'arrivée :', destination),
+                _buildModalRow('Lieu de prise en charge :', depart),
+                _buildModalRow('Destination :', destination),
                 _buildModalRow('Prestation :', 'Transport Public Particulier de Personnes'),
                 _buildModalRow('Tarif :', prixText),
                 const SizedBox(height: 12),

@@ -403,8 +403,8 @@ abstract final class KeleganceDocumentsPdfService {
         <div class="field"><label>E-mail</label><span>{{email}}</span></div>
         <div class="field"><label>Date de prise en charge</label><span>{{date}}</span></div>
         <div class="field"><label>Heure de récupération</label><span>{{heure}}</span></div>
-        <div class="field full"><label>Lieu de départ</label><span>{{depart}}</span></div>
-        <div class="field full"><label>Lieu d'arrivée</label><span>{{destination}}</span></div>
+        <div class="field full"><label>Lieu de prise en charge</label><span>{{depart}}</span></div>
+        <div class="field full"><label>Destination</label><span>{{destination}}</span></div>
         <div class="field"><label>Passagers</label><span>{{passagers}}</span></div>
         <div class="field"><label>Prestation</label><span>{{prestation}}</span></div>
         <div class="field"><label>Chauffeur assigné</label><span>{{chauffeur}}</span></div>
@@ -544,8 +544,8 @@ abstract final class KeleganceDocumentsPdfService {
       ..._pdfLigne('E-mail', d.email, or, texte),
       ..._pdfLigne('Date', d.date, or, texte),
       ..._pdfLigne('Heure', d.heure, or, texte),
-      ..._pdfLigne('Départ', d.depart, or, texte),
-      ..._pdfLigne('Arrivée', d.destination, or, texte),
+      ..._pdfLigne('Lieu de prise en charge', d.depart, or, texte),
+      ..._pdfLigne('Destination', d.destination, or, texte),
       ..._pdfLigne('Passagers', d.passagers.toString(), or, texte),
       pw.SizedBox(height: 14),
       pw.Container(

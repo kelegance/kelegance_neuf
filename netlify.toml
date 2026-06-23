@@ -1,4 +1,4 @@
-# Kelegance — déploiement Flutter Web sur Netlify
+# Kelegance — déploiement Flutter Web sur Netlify (sans service worker)
 
 [[plugins]]
   package = "netlify-plugin-flutter"
@@ -12,17 +12,76 @@
 
 [build.environment]
   NODE_VERSION = "22"
-  # Évite l’échec npm si NODE_OPTIONS est défini dans l’UI Netlify avec des flags non autorisés.
   NODE_OPTIONS = ""
-  # Chemin du SDK Flutter (mis en cache entre les builds Netlify).
   FLUTTER_ROOT = "/opt/buildhome/flutter"
+  KELEGANCE_WEB_ORIGIN = "https://cheerful-salamander-565dfc.netlify.app"
 
+# Deep links SPA (complète web/_redirects)
 [[redirects]]
   from = "/doc/*"
   to = "/doc/index.html"
   status = 200
 
 [[redirects]]
+  from = "/reserver"
+  to = "/index.html"
+  status = 200
+
+[[redirects]]
+  from = "/reserver/*"
+  to = "/index.html"
+  status = 200
+
+[[redirects]]
+  from = "/gestion"
+  to = "/index.html"
+  status = 200
+
+[[redirects]]
+  from = "/gestion/*"
+  to = "/index.html"
+  status = 200
+
+[[redirects]]
+  from = "/mappy"
+  to = "/index.html"
+  status = 200
+
+[[redirects]]
+  from = "/mappy/*"
+  to = "/index.html"
+  status = 200
+
+[[redirects]]
+  from = "/admin/qrcodes"
+  to = "/index.html"
+  status = 200
+
+[[redirects]]
+  from = "/admin/qrcodes/*"
+  to = "/index.html"
+  status = 200
+
+[[redirects]]
   from = "/*"
   to = "/index.html"
   status = 200
+
+# Anti-cache sur le shell Flutter — évite les versions figées (pas de SW)
+[[headers]]
+  for = "/index.html"
+  [headers.values]
+    Cache-Control = "no-cache, no-store, must-revalidate"
+    Pragma = "no-cache"
+
+[[headers]]
+  for = "/flutter_bootstrap.js"
+  [headers.values]
+    Cache-Control = "no-cache, no-store, must-revalidate"
+    Pragma = "no-cache"
+
+[[headers]]
+  for = "/flutter_service_worker.js"
+  [headers.values]
+    Cache-Control = "no-cache, no-store, must-revalidate"
+    X-Robots-Tag = "noindex"

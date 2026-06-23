@@ -15,7 +15,7 @@ const ROUTES = [
   { id: 'gestion', path: '/gestion', label: 'Deep link Bras Droit', attendHtml: true },
   { id: 'admin-qr', path: '/admin/qrcodes', label: 'Admin QR codes', attendHtml: true },
   { id: 'manifest', path: '/manifest.json', label: 'Manifest PWA', attendJson: true },
-  { id: 'sw', path: '/flutter_service_worker.js', label: 'Service worker', attendJs: true },
+  { id: 'sw', path: '/flutter_service_worker.js', label: 'Service worker (absent)', attendAbsent: true },
   { id: 'bootstrap', path: '/flutter_bootstrap.js', label: 'Flutter bootstrap', attendJs: true },
   { id: 'main', path: '/main.dart.js', label: 'Application Flutter', attendJs: true },
 ];
@@ -85,13 +85,16 @@ function contientFlutterShell(html) {
 }
 
 function contientServiceWorkerConfig(js) {
-  return js.includes('serviceWorkerSettings') || js.includes('serviceWorkerVersion');
+  return /_flutter\.loader\.load\(\{\s*serviceWorkerSettings:/.test(js);
 }
 
 function evaluerRoute(route, result) {
   const problemes = [];
 
   if (!result.ok) {
+    if (route.attendAbsent && result.status === 404) {
+      return problemes;
+    }
     problemes.push(result.erreur ? `Réseau : ${result.erreur}` : `HTTP ${result.status}`);
     return problemes;
   }
@@ -109,16 +112,12 @@ function evaluerRoute(route, result) {
     problemes.push(`Manifest non JSON : ${result.contentType}`);
   }
 
-  if (route.attendJs && route.id === 'bootstrap' && !contientServiceWorkerConfig(result.body)) {
-    problemes.push('flutter_bootstrap.js sans configuration service worker');
+  if (route.attendAbsent && result.ok) {
+    problemes.push('flutter_service_worker.js ne devrait pas être déployé');
   }
 
-  if (route.attendJs && route.id === 'sw' && result.body.includes('unregister')) {
-    problemes.push('Service worker Flutter "cleanup" détecté — lancer inject-pwa-cache.mjs après le build');
-  }
-
-  if (route.attendJs && route.id === 'sw' && !result.body.includes('kelegance-precache')) {
-    problemes.push('Service worker Kelegance non injecté (precache manquant)');
+  if (route.attendJs && route.id === 'bootstrap' && contientServiceWorkerConfig(result.body)) {
+    problemes.push('flutter_bootstrap.js enregistre encore un service worker');
   }
 
   return problemes;

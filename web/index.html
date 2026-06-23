@@ -74,10 +74,31 @@
 
   <link rel="manifest" href="manifest.json">
 
-  <!-- Google Maps JavaScript API — requis pour google_maps_flutter sur le Web -->
-  <script src="https://maps.googleapis.com/maps/api/js?key=AIzaSyCM_g7NBu0L8WZDi8SuJTyt2wiilbCvfmI"></script>
-
-  <!-- Cache hors-ligne : flutter_service_worker.js injecté au build (scripts/inject-pwa-cache.mjs). -->
+  <!-- Google Maps JavaScript API — carte + autocomplétion adresses -->
+  <script src="https://maps.googleapis.com/maps/api/js?key=AIzaSyCM_g7NBu0L8WZDi8SuJTyt2wiilbCvfmI&libraries=places"></script>
+  <script>
+    window.kelegancePlacesAutocomplete = function (input) {
+      return new Promise(function (resolve) {
+        if (!window.google || !google.maps || !google.maps.places) {
+          resolve([]);
+          return;
+        }
+        var service = new google.maps.places.AutocompleteService();
+        service.getPlacePredictions(
+          { input: input, componentRestrictions: { country: 'fr' }, language: 'fr' },
+          function (predictions, status) {
+            if (status !== google.maps.places.PlacesServiceStatus.OK || !predictions) {
+              resolve([]);
+              return;
+            }
+            resolve(predictions.map(function (p) {
+              return { description: p.description, placeId: p.place_id };
+            }));
+          }
+        );
+      });
+    };
+  </script>
 
   <style>
 
@@ -176,6 +197,19 @@
 
   -->
 
+  <script>
+    (function () {
+      if (!('serviceWorker' in navigator)) return;
+      navigator.serviceWorker.getRegistrations().then(function (regs) {
+        regs.forEach(function (r) { r.unregister(); });
+      });
+      if (window.caches && caches.keys) {
+        caches.keys().then(function (keys) {
+          keys.forEach(function (k) { caches.delete(k); });
+        });
+      }
+    })();
+  </script>
   <script src="flutter_bootstrap.js" async></script>
   <script>
     window.addEventListener('flutter-first-frame', function () {

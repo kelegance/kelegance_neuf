@@ -31,7 +31,7 @@ abstract final class KeleganceContenus {
     KeleganceFaq(
       question: 'Comment réserver une course ?',
       reponse:
-          'Rendez-vous dans l\'onglet « Réserver », saisissez votre lieu de départ et votre destination, '
+          'Rendez-vous dans l\'onglet « Réserver », saisissez votre lieu de prise en charge et votre destination, '
           'sélectionnez la date, l\'heure et le nombre de passagers (1 à 4), puis validez avec le bouton '
           '« CONFIRMER LA RÉSERVATION ». Votre demande apparaît immédiatement dans l\'onglet « Agenda ». '
           'Vous recevez une confirmation dès que votre chauffeur Kélégance valide la mission.',
@@ -96,7 +96,7 @@ Kélégance Prestige, transport de personnes à titre onéreux (VTC), est respon
 
 2. DONNÉES COLLECTÉES
 • Identité et contact : nom, adresse e-mail, numéro de téléphone.
-• Données de réservation : adresses de départ et d'arrivée, dates, horaires, nombre de passagers.
+• Données de réservation : lieux de prise en charge et destinations, dates, horaires, nombre de passagers.
 • Données de facturation : historique des courses et montants.
 
 3. DONNÉES DE LOCALISATION GPS
