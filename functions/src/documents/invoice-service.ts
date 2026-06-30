@@ -3,7 +3,6 @@ import * as logger from "firebase-functions/logger";
 import { FieldValue } from "firebase-admin/firestore";
 import { KELEGANCE_IDENTITE } from "../constants";
 import { genererHtmlDocument } from "./invoice-html";
-import { genererPdfDepuisHtml } from "./invoice-pdf";
 import {
   DocumentDonnees,
   MissionData,
@@ -22,12 +21,9 @@ export interface DocumentPublie {
   lienWeb: string;
   numeroDocument: string;
   htmlContenu: string;
-  pdfBase64: string;
   emailClient: string;
   donnees: DocumentDonnees;
 }
-
-const FIRESTORE_MAX_SAFE = 900_000;
 
 export async function resoudreEmailClient(
   db: admin.firestore.Firestore,
@@ -87,7 +83,7 @@ export async function documentExisteDeja(
   return Boolean(data.htmlContenu);
 }
 
-/** Publie un document client dans Firestore (HTML prioritaire pour le viewer web). */
+/** Publie un document client dans Firestore — facturation 100 % électronique (HTML web). */
 export async function publierDocument(
   db: admin.firestore.Firestore,
   missionId: string,
@@ -99,8 +95,6 @@ export async function publierDocument(
   const lienWeb = `${KELEGANCE_IDENTITE.baseUrlWeb}/${token}`;
   const donnees = documentDepuisMission(missionData, { type, token, missionId });
   const htmlContenu = genererHtmlDocument(type, donnees);
-  const pdfBuffer = await genererPdfDepuisHtml(htmlContenu);
-  const pdfBase64 = pdfBuffer.toString("base64");
   const prix = donnees.prixTtc;
   const ventilation = ventilerCommission(prix);
 
@@ -125,19 +119,13 @@ export async function publierDocument(
     numeroDocument: donnees.numeroDocument,
     dateEmission: donnees.dateEmission,
     htmlContenu,
-    pdfBase64,
+    format: "electronique_web",
     emailAdmin: KELEGANCE_IDENTITE.emailAdmin,
     whatsappPrestige: KELEGANCE_IDENTITE.whatsappPrestige,
     statut: "publie",
     source: "cloud_function_documents_auto",
     createdAt: FieldValue.serverTimestamp(),
   };
-
-  if (Buffer.byteLength(JSON.stringify(docPayload), "utf8") > FIRESTORE_MAX_SAFE) {
-    delete docPayload.pdfBase64;
-    docPayload.pdfHorsFirestore = true;
-    logger.warn("PDF non stocké dans Firestore (taille)", { token, type });
-  }
 
   await db.collection("documents_client").doc(token).set(docPayload);
 
@@ -163,7 +151,6 @@ export async function publierDocument(
     lienWeb,
     numeroDocument: donnees.numeroDocument,
     htmlContenu,
-    pdfBase64,
     emailClient,
     donnees,
   };
@@ -207,7 +194,6 @@ export async function chargerDocumentExistant(
     lienWeb: String(data.lienWeb),
     numeroDocument: String(data.numeroDocument),
     htmlContenu: String(data.htmlContenu),
-    pdfBase64: String(data.pdfBase64 ?? ""),
     emailClient: String(data.email ?? ""),
     donnees: documentDepuisMission(
       {

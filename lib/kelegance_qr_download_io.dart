@@ -2,9 +2,11 @@ import 'dart:typed_data';
 
 import 'package:share_plus/share_plus.dart';
 
-import 'kelegance_web_urls.dart';
-
-Future<void> telechargerQrPng(Uint8List bytes, String nomFichier) async {
+Future<void> telechargerQrPng(
+  Uint8List bytes,
+  String nomFichier, {
+  required String lienHub,
+}) async {
   final fichier = XFile.fromData(
     bytes,
     mimeType: 'image/png',
@@ -13,8 +15,8 @@ Future<void> telechargerQrPng(Uint8List bytes, String nomFichier) async {
   await SharePlus.instance.share(
     ShareParams(
       files: [fichier],
-      subject: 'QR Code réservation Kelegance',
-      text: 'Lien client : ${KeleganceWebUrls.reserver}',
+      subject: 'QR Code Hub Kelegance',
+      text: lienHub,
     ),
   );
 }

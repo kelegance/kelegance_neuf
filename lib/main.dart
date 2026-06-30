@@ -6,16 +6,38 @@ import 'dart:ui';
 import 'auth_service.dart';
 import 'firebase_options.dart';
 import 'kelegance_adresse_autocomplete.dart';
+import 'kelegance_console_prefs.dart';
 import 'kelegance_calendrier_multi_dates.dart';
 import 'kelegance_contenus.dart';
 import 'kelegance_deep_link.dart';
+import 'kelegance_maps_launch.dart';
+import 'kelegance_bon_commande_service.dart';
+import 'kelegance_bon_commande_ui.dart';
+import 'kelegance_live_sync.dart';
+import 'kelegance_missions_service.dart';
+import 'mission_details_screen.dart';
+import 'kelegance_factures_service.dart';
 import 'kelegance_documents_pdf_service.dart';
+import 'kelegance_ota_update.dart';
 import 'kelegance_platform.dart';
+import 'kelegance_dispatch_sollicitation.dart';
+import 'kelegance_presence_equipe.dart';
+import 'kelegance_presence_service.dart';
 import 'kelegance_qr_reservation.dart';
+import 'kelegance_overlay_discretion.dart';
+import 'kelegance_invitation_chauffeur_ui.dart';
+import 'kelegance_navigation_guard.dart';
+import 'kelegance_notification_prefs_ui.dart';
+import 'kelegance_roles.dart';
+import 'kelegance_roles_diagnostic.dart';
 import 'kelegance_router.dart';
+import 'kelegance_version_check.dart';
 import 'kelegance_web_urls.dart';
 import 'qr_generator_page.dart';
+import 'reveil_missions_service.dart';
+import 'kelegance_fcm_background.dart';
 import 'stripe_paiement_service.dart';
+import 'utils/pricing.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -23,6 +45,7 @@ import 'package:flutter_web_plugins/url_strategy.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:http/http.dart' as http;
@@ -31,11 +54,12 @@ import 'package:google_maps_flutter_android/google_maps_flutter_android.dart';
 import 'package:google_maps_flutter_platform_interface/google_maps_flutter_platform_interface.dart';
 import 'package:system_alert_window/system_alert_window.dart';
 import 'package:audioplayers/audioplayers.dart';
-import 'package:printing/printing.dart';
+import 'package:share_plus/share_plus.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
   _configurerStrategieUrlWeb();
+  await KeleganceVersionCheck.verifierAuDemarrage();
 
   try {
     await Firebase.initializeApp(
@@ -56,7 +80,9 @@ void main() async {
   }
 
   if (!kIsWeb) {
+    FirebaseMessaging.onBackgroundMessage(keleganceFirebaseMessagingBackgroundHandler);
     unawaited(KeleganceAudioAlertes.initialiser());
+    unawaited(KeleganceReveilMissions.initialiser());
   }
 
   runApp(const KeleganceApp());
@@ -85,6 +111,8 @@ Future<void> _configurerRenduCarteMobile() async {
 
 class KeleganceConfig {
   static const String version = '7.0.1';
+  /// Affiché en bas de l'écran d'accueil — permet de vérifier le déploiement.
+  static const String versionAffichage = 'v1.1.1';
   static const String googleMapsApiKey = String.fromEnvironment(
     'GOOGLE_MAPS_API_KEY',
     defaultValue: 'AIzaSyCM_g7NBu0L8WZDi8SuJTyt2wiilbCvfmI',
@@ -195,13 +223,6 @@ abstract final class KeleganceThemePremium {
       ),
     );
   }
-}
-
-/// Calcul tarifaire partagé client / réservation instantanée chauffeur — v6.9.5 (forfait Orly sécurisé).
-class KeleganceResultatTarif {
-  const KeleganceResultatTarif({required this.prix, required this.libelle});
-  final double prix;
-  final String libelle;
 }
 
 /// Ventilation commission Kelegance — 15 % frais service / 85 % net chauffeur.
@@ -409,7 +430,7 @@ abstract final class KeleganceCommunication {
   }
 }
 
-/// Document client partageable via lien web Kelegance unique — v6.9.0 Élite.
+/// Document client partageable via lien web Kelegance unique — facturation 100 % électronique.
 class KeleganceDocumentPartage {
   const KeleganceDocumentPartage({
     required this.token,
@@ -418,8 +439,8 @@ class KeleganceDocumentPartage {
     required this.titre,
     this.missionId,
     this.htmlContenu,
-    this.pdfBytes,
     this.numeroDocument,
+    this.emailDestinataire,
   });
 
   final String token;
@@ -428,20 +449,11 @@ class KeleganceDocumentPartage {
   final String titre;
   final String? missionId;
   final String? htmlContenu;
-  final Uint8List? pdfBytes;
   final String? numeroDocument;
+  final String? emailDestinataire;
 
   String get messagePartage =>
-      'Kelegance Prestige — $titre\nConsultez votre document premium en ligne (sans application) :\n$lienWeb';
-
-  String get nomFichierPdf {
-    final ref = numeroDocument ?? token.substring(4, 12);
-    return switch (type) {
-      'FACTURE TTC' => 'Kelegance-Facture-$ref.pdf',
-      'BON DE COMMANDE RETOUR' => 'Kelegance-BDC-Retour-$ref.pdf',
-      _ => 'Kelegance-BDC-$ref.pdf',
-    };
-  }
+      'Kelegance Prestige — $titre\nConsultez votre document électronique en ligne :\n$lienWeb';
 }
 
 /// Module miroir BDC retour & Facture TTC — publication Firestore + partage SMS / WhatsApp Business.
@@ -480,8 +492,6 @@ abstract final class KeleganceDocumentsClient {
       missionId: missionId,
     );
     final htmlContenu = KeleganceDocumentsPdfService.genererHtml(type: type, donnees: donnees);
-    final pdfBytes = await KeleganceDocumentsPdfService.genererPdf(type: type, donnees: donnees);
-    final pdfBase64 = base64Encode(pdfBytes);
 
     await FirebaseFirestore.instance.collection(collection).doc(token).set({
       'token': token,
@@ -504,7 +514,7 @@ abstract final class KeleganceDocumentsClient {
       'numeroDocument': donnees.numeroDocument,
       'dateEmission': donnees.dateEmission,
       'htmlContenu': htmlContenu,
-      'pdfBase64': pdfBase64,
+      'format': 'electronique_web',
       'emailAdmin': KeleganceIdentiteDocuments.emailAdmin,
       'whatsappPrestige': KeleganceIdentiteDocuments.whatsappPrestige,
       'statut': 'publie',
@@ -519,8 +529,8 @@ abstract final class KeleganceDocumentsClient {
       titre: titre,
       missionId: missionId,
       htmlContenu: htmlContenu,
-      pdfBytes: Uint8List.fromList(pdfBytes),
       numeroDocument: donnees.numeroDocument,
+      emailDestinataire: missionData['email']?.toString(),
     );
   }
 
@@ -578,47 +588,63 @@ abstract final class KeleganceDocumentsClient {
   ) =>
       KeleganceCommunication.ouvrirWhatsApp(context, numero, message: doc.messagePartage);
 
-  static Future<Uint8List?> _resoudrePdfBytes(KeleganceDocumentPartage doc) async {
-    if (doc.pdfBytes != null && doc.pdfBytes!.isNotEmpty) return doc.pdfBytes;
+  static Future<void> partagerLien(BuildContext context, KeleganceDocumentPartage doc) async {
     try {
-      final snap = await FirebaseFirestore.instance.collection(collection).doc(doc.token).get();
-      final b64 = snap.data()?['pdfBase64'] as String?;
-      if (b64 != null && b64.isNotEmpty) return base64Decode(b64);
-    } catch (e) {
-      if (kDebugMode) debugPrint('KeleganceDocumentsClient PDF: $e');
-    }
-    return null;
-  }
-
-  static Future<void> partagerPdfNatif(
-    BuildContext context,
-    KeleganceDocumentPartage doc,
-  ) async {
-    final bytes = await _resoudrePdfBytes(doc);
-    if (bytes == null || bytes.isEmpty) {
-      if (!context.mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          backgroundColor: Colors.orange,
-          content: Text('PDF indisponible — régénérez le document.'),
+      await SharePlus.instance.share(
+        ShareParams(
+          subject: 'Kelegance Prestige — ${doc.titre}',
+          text: doc.messagePartage,
         ),
       );
-      return;
-    }
-
-    try {
-      await Printing.sharePdf(
-        bytes: bytes,
-        filename: doc.nomFichierPdf,
-        subject: 'Kelegance Prestige — ${doc.titre}',
-        body: doc.messagePartage,
-      );
     } catch (e) {
       if (!context.mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(backgroundColor: Colors.orange, content: Text('Partage PDF impossible : $e')),
+        SnackBar(backgroundColor: Colors.orange, content: Text('Partage impossible : $e')),
       );
     }
+  }
+
+  static Future<void> envoyerLienParEmail(
+    BuildContext context,
+    KeleganceDocumentPartage doc, {
+    String? destinataire,
+  }) async {
+    final to = (destinataire ?? doc.emailDestinataire ?? '').trim();
+    final subject = Uri.encodeComponent('Kelegance Prestige — ${doc.titre}');
+    final body = Uri.encodeComponent(doc.messagePartage);
+    final uri = to.isNotEmpty
+        ? Uri.parse('mailto:$to?subject=$subject&body=$body')
+        : Uri.parse('mailto:?subject=$subject&body=$body');
+    try {
+      final ok = await launchUrl(uri);
+      if (!ok && context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            backgroundColor: Colors.orange,
+            content: Text('Aucune application e-mail disponible sur cet appareil.'),
+          ),
+        );
+      }
+    } catch (e) {
+      if (!context.mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(backgroundColor: Colors.orange, content: Text('Envoi e-mail impossible : $e')),
+      );
+    }
+  }
+
+  static KeleganceDocumentPartage depuisFacture(Map<String, dynamic> data) {
+    final lien = data['lienWeb']?.toString() ?? '';
+    final token = data['tokenDocument']?.toString() ?? '';
+    final numero = data['numero']?.toString() ?? 'Facture';
+    return KeleganceDocumentPartage(
+      token: token,
+      lienWeb: lien,
+      type: 'FACTURE TTC',
+      titre: 'Facture $numero',
+      numeroDocument: numero,
+      emailDestinataire: data['email']?.toString() ?? data['client']?.toString(),
+    );
   }
 
   static Future<void> afficherFeuillePartage(
@@ -644,7 +670,7 @@ abstract final class KeleganceDocumentsClient {
               Text(document.titre, style: KeleganceThemePremium.titreAlerte(size: 16)),
               const SizedBox(height: 8),
               Text(
-                'Lien web premium — consultation fluide sans application',
+                'Facture électronique — consultation web sécurisée',
                 style: TextStyle(color: Colors.white.withOpacity(0.55), fontSize: 11),
               ),
               const SizedBox(height: 6),
@@ -665,12 +691,34 @@ abstract final class KeleganceDocumentsClient {
                   ),
                   icon: const Icon(Icons.ios_share_rounded, size: 18),
                   label: const Text(
-                    'Télécharger / Partager le PDF',
+                    'Partager le lien',
                     style: TextStyle(fontWeight: FontWeight.w700, fontSize: 13),
                   ),
                   onPressed: () {
                     Navigator.pop(ctx);
-                    unawaited(partagerPdfNatif(context, document));
+                    unawaited(partagerLien(context, document));
+                  },
+                ),
+              ),
+              const SizedBox(height: 10),
+              SizedBox(
+                height: 46,
+                child: OutlinedButton.icon(
+                  style: OutlinedButton.styleFrom(
+                    side: BorderSide(color: KeleganceConfig.or.withOpacity(0.55)),
+                    foregroundColor: KeleganceConfig.or,
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(KeleganceConfig.rayonBoutonPremium),
+                    ),
+                  ),
+                  icon: const Icon(Icons.email_outlined, size: 18),
+                  label: const Text(
+                    'Envoyer par e-mail',
+                    style: TextStyle(fontWeight: FontWeight.w600, fontSize: 13),
+                  ),
+                  onPressed: () {
+                    Navigator.pop(ctx);
+                    unawaited(envoyerLienParEmail(context, document));
                   },
                 ),
               ),
@@ -772,228 +820,6 @@ abstract final class KeleganceAdresse {
 
     final ville = extraireVille(destination);
     return ville.isNotEmpty ? ville : destination.trim();
-  }
-}
-
-abstract final class KeleganceTarif {
-  // PRIORITÉ 2 — Algorithme intelligent v6.0.0 (hors forfait uniquement).
-  static const double tarifMinimum = 15.0;
-  static const double kmInclus = 3.0;
-  static const double tarifKmSupplementaire = 1.80;
-  static const String libelleClassique = 'Tarif Course Sur-Mesure';
-
-  // SANCTUAIRE FORFAITS v6.9.5 — Tarifs figés (ne pas modifier).
-  static const double forfaitOrlyZoneConfiance = 55.0;
-  static const List<String> _zoneConfiancePartenaires = [
-    'rueil', 'malmaison', 'rueil-malmaison', 'rueil malmaison',
-    'saint-nom', 'saint nom', 'bretèche', 'breteche', 'nom-la-bretèche', 'nom-la-breteche',
-    'saint-germain', 'germain-en-laye', 'en-laye',
-    'guyancourt',
-    'versailles', 'chatou', 'boulogne', 'nanterre', 'neuilly', 'le chesnay',
-    'vélizy', 'velizy', 'marly', 'sartrouville', 'poissy', 'issy', 'courbevoie', 'pontoise', 'paris',
-    'cloud', 'celle', 'vaucresson', 'villepreux', 'garches', 'bougival',
-    'louveciennes', 'suresnes', 'meudon', 'sevres', 'sèvres', 'croissy', 'le pecq',
-    'asnieres', 'asnères', 'colombes', 'levallois', 'puteaux', 'clamart', 'malakoff',
-    'montrouge', 'bagneux', 'châtillon', 'chatillon', 'fontenay', 'antony', 'sceaux',
-    // Codes postaux zone Rueil & limitrophes — v6.9.5
-    '92500', '92400', '92800', '92000', '78100', '78400', '78000', '92380', '92210',
-    '92300', '92150', '92200', '92100', '92600', '92700', '92310', '78380', '78560',
-  ];
-
-  static final RegExp _oryCodeIata = RegExp(r'\bory\b', caseSensitive: false);
-  static final RegExp _orlyTerminal = RegExp(r'orly\s*[1-4]', caseSensitive: false);
-  static final RegExp _orlyMotComplet = RegExp(r'\borly\b', caseSensitive: false);
-
-  /// Normalisation accents / tirets pour détection fiable des forfaits.
-  static String _normaliserTexteTarif(String texte) {
-    var t = texte.toLowerCase().trim();
-    const accents = {
-      'é': 'e', 'è': 'e', 'ê': 'e', 'ë': 'e',
-      'à': 'a', 'â': 'a', 'ä': 'a',
-      'ù': 'u', 'û': 'u', 'ü': 'u',
-      'ô': 'o', 'ö': 'o',
-      'ï': 'i', 'î': 'i',
-      'ç': 'c',
-    };
-    accents.forEach((k, v) => t = t.replaceAll(k, v));
-    return t.replaceAll('-', ' ').replaceAll('_', ' ').replaceAll(RegExp(r'\s+'), ' ');
-  }
-
-  static bool _verifierZoneConfiance(String texte) {
-    final t = _normaliserTexteTarif(texte);
-    return _zoneConfiancePartenaires.any(t.contains);
-  }
-
-  static bool _detecterCDG(String texte) {
-    final t = _normaliserTexteTarif(texte);
-    return t.contains('cdg') ||
-        t.contains('gaulle') ||
-        t.contains('roissy') ||
-        (t.contains('charles') && (t.contains('aeroport') || t.contains('airport') || t.contains('roissy')));
-  }
-
-  /// Détection Orly renforcée v6.9.5 — Orly seul, aéroport, terminaux 1-4, code ORY, CP 94390.
-  static bool _detecterOrly(String texte) {
-    final t = _normaliserTexteTarif(texte);
-    if (t.isEmpty) return false;
-    if (_orlyMotComplet.hasMatch(t)) return true;
-    if (t.contains('orly')) return true;
-    if (_orlyTerminal.hasMatch(t)) return true;
-    if (_oryCodeIata.hasMatch(t)) return true;
-    if (t.contains('94390')) return true;
-    if ((t.contains('aeroport') || t.contains('airport')) &&
-        (t.contains('orly') || _oryCodeIata.hasMatch(t))) {
-      return true;
-    }
-    if (t.contains('paris orly') || t.contains('orly sud') || t.contains('orly ouest')) return true;
-    return false;
-  }
-
-  static bool _detecterBeauvais(String texte) {
-    final t = _normaliserTexteTarif(texte);
-    return t.contains('beauvais') || t.contains('bva') || t.contains('tille');
-  }
-
-  static bool _detecterGare(String texte) {
-    final t = _normaliserTexteTarif(texte);
-    return t.contains('gare') ||
-        t.contains('montparnasse') ||
-        t.contains('saint lazare') ||
-        t.contains('gare de lyon') ||
-        (t.contains('gare') && t.contains('nord')) ||
-        t.contains('austerlitz') ||
-        t.contains('bercy') ||
-        (t.contains('gare') && t.contains('est'));
-  }
-
-  static bool _detecterRungis(String texte) {
-    final t = _normaliserTexteTarif(texte);
-    return t.contains('rungis') || t.contains('marche international');
-  }
-
-  /// PRIORITÉ ABSOLUE — Forfait Orly 55 € (Rueil & zone limitrophe ↔ Orly).
-  static KeleganceResultatTarif? _forfaitOrlySecurise(String depart, String arrivee) {
-    final dep = _normaliserTexteTarif(depart);
-    final arr = _normaliserTexteTarif(arrivee);
-    if (dep.isEmpty || arr.isEmpty) return null;
-
-    final orlyDep = _detecterOrly(dep);
-    final orlyArr = _detecterOrly(arr);
-    final zoneDep = _verifierZoneConfiance(dep);
-    final zoneArr = _verifierZoneConfiance(arr);
-
-    if ((orlyDep && zoneArr) || (orlyArr && zoneDep)) {
-      return const KeleganceResultatTarif(
-        prix: forfaitOrlyZoneConfiance,
-        libelle: KeleganceConfig.libelleForfaitAeroGare,
-      );
-    }
-    return null;
-  }
-
-  /// PRIORITÉ 1 — Forfait synchrone, aucun calcul kilométrique supplémentaire.
-  static KeleganceResultatTarif? detecterForfait(String depart, String arrivee) {
-    final dep = _normaliserTexteTarif(depart);
-    final arr = _normaliserTexteTarif(arrivee);
-    if (dep.isEmpty || arr.isEmpty) return null;
-
-    // Orly en tête de chaîne — priorité absolue sur le calcul km (v6.9.5).
-    final orly = _forfaitOrlySecurise(depart, arrivee);
-    if (orly != null) return orly;
-
-    if ((_detecterCDG(dep) && _verifierZoneConfiance(arr)) || (_detecterCDG(arr) && _verifierZoneConfiance(dep))) {
-      return const KeleganceResultatTarif(prix: 65.0, libelle: KeleganceConfig.libelleForfaitAeroGare);
-    }
-    if ((_detecterBeauvais(dep) && _verifierZoneConfiance(arr)) || (_detecterBeauvais(arr) && _verifierZoneConfiance(dep))) {
-      return const KeleganceResultatTarif(prix: 120.0, libelle: KeleganceConfig.libelleForfaitAeroGare);
-    }
-    if ((_detecterGare(dep) && _verifierZoneConfiance(arr)) || (_detecterGare(arr) && _verifierZoneConfiance(dep))) {
-      return const KeleganceResultatTarif(prix: 45.0, libelle: KeleganceConfig.libelleForfaitAeroGare);
-    }
-    if ((_detecterRungis(dep) && _verifierZoneConfiance(arr)) || (_detecterRungis(arr) && _verifierZoneConfiance(dep))) {
-      return const KeleganceResultatTarif(prix: 45.0, libelle: KeleganceConfig.libelleForfaitAeroGare);
-    }
-    return null;
-  }
-
-  /// PRIORITÉ 2 — 15 € min (3 km inclus), puis 1,80 €/km au-delà.
-  static double appliquerTarifIntelligent({required double distanceKm}) {
-    if (distanceKm <= kmInclus) return tarifMinimum;
-    final supplement = (distanceKm - kmInclus) * tarifKmSupplementaire;
-    return double.parse((tarifMinimum + supplement).toStringAsFixed(2));
-  }
-
-  static Future<({double km, double minutes})?> _fetchDistanceMatrix(String origin, String destination) async {
-    try {
-      final url = Uri.parse(
-        'https://maps.googleapis.com/maps/api/distancematrix/json'
-        '?origins=${Uri.encodeComponent(origin)}'
-        '&destinations=${Uri.encodeComponent(destination)}'
-        '&mode=driving'
-        '&language=fr'
-        '&units=metric'
-        '&key=${KeleganceConfig.googleMapsApiKey}',
-      );
-      final response = await http.get(url).timeout(const Duration(seconds: 8));
-      if (response.statusCode != 200) return null;
-
-      final json = jsonDecode(response.body) as Map<String, dynamic>;
-      if (json['status'] != 'OK') return null;
-
-      final elements = (json['rows'] as List?)?.first?['elements'] as List?;
-      final element = elements?.isNotEmpty == true ? elements!.first as Map<String, dynamic> : null;
-      if (element == null || element['status'] != 'OK') return null;
-
-      final meters = (element['distance'] as Map)['value'] as int;
-      final seconds = (element['duration'] as Map)['value'] as int;
-      return (km: meters / 1000.0, minutes: seconds / 60.0);
-    } catch (e) {
-      if (kDebugMode) debugPrint('Kelegance Distance Matrix: $e');
-      return null;
-    }
-  }
-
-  /// Sync — forfait uniquement ; null si course classique (utiliser [estimerPrixComplet]).
-  static KeleganceResultatTarif? calculerPrix(String depart, String arrivee) => detecterForfait(depart, arrivee);
-
-  /// Estimation complète : forfait sanctifié en priorité absolue, sinon algo intelligent v6.0.0.
-  static Future<KeleganceResultatTarif?> estimerPrixComplet(String depart, String arrivee) async {
-    final forfait = detecterForfait(depart, arrivee);
-    if (forfait != null) return forfait;
-
-    final dep = depart.trim();
-    final arr = arrivee.trim();
-    if (dep.isEmpty || arr.isEmpty) return null;
-
-    // Garde-fou v6.9.5 — re-vérification Orly avant tout appel Distance Matrix.
-    final orlySecurise = _forfaitOrlySecurise(dep, arr);
-    if (orlySecurise != null) return orlySecurise;
-
-    final metrics = await _fetchDistanceMatrix(dep, arr);
-
-    // Garde-fou final — jamais de tarif km erroné si Orly + zone confiance détectés.
-    final orlyApresMatrix = _forfaitOrlySecurise(dep, arr);
-    if (orlyApresMatrix != null) return orlyApresMatrix;
-
-    if (metrics == null) {
-      return const KeleganceResultatTarif(prix: tarifMinimum, libelle: libelleClassique);
-    }
-
-    final prix = appliquerTarifIntelligent(distanceKm: metrics.km);
-    return KeleganceResultatTarif(prix: prix, libelle: libelleClassique);
-  }
-
-  /// v7.0.0 — Remise algorithmique −10 % appliquée uniquement sur le trajet retour (aller-retour).
-  static const double tauxRemiseRetourAllerRetour = 0.10;
-
-  static double appliquerRemiseRetour(double prixTrajetRetour) {
-    final remise = prixTrajetRetour * tauxRemiseRetourAllerRetour;
-    return double.parse((prixTrajetRetour - remise).toStringAsFixed(2));
-  }
-
-  static double calculerTotalAllerRetour(double prixAller, {double? prixRetourBrut}) {
-    final retourBrut = prixRetourBrut ?? prixAller;
-    return double.parse((prixAller + appliquerRemiseRetour(retourBrut)).toStringAsFixed(2));
   }
 }
 
@@ -1235,8 +1061,10 @@ abstract final class KeleganceGestionReservations {
     required String docId,
     required Map<String, dynamic> data,
     bool bloque = false,
+    bool accesComplet = true,
     double fontSize = 11,
   }) {
+    if (!accesComplet) return const SizedBox.shrink();
     final verrou = bloque || actionsBloquees(data);
     Color couleur(bool actif, Color couleurActive) => actif ? couleurActive : Colors.white24;
 
@@ -1415,6 +1243,9 @@ class KeleganceApp extends StatelessWidget {
   Widget build(BuildContext context) {
     return MaterialApp(
       debugShowCheckedModeBanner: false,
+      builder: (context, child) => KeleganceOverlayDiscretion(
+        child: child ?? const SizedBox.shrink(),
+      ),
       theme: ThemeData(
         brightness: Brightness.dark,
         primaryColor: KeleganceConfig.or,
@@ -1443,12 +1274,44 @@ class KeleganceApp extends StatelessWidget {
       ),
       initialRoute: KeleganceRouter.routeInitiale(),
       onGenerateRoute: (settings) {
-        switch (KeleganceRouter.cheminDepuisSettings(settings.name)) {
-          case KeleganceWebUrls.cheminAdminQr:
+        final chemin = KeleganceRouter.cheminDepuisSettings(settings.name);
+        if (KeleganceRouter.estRouteAdmin(chemin)) {
+          if (KeleganceRouter.estRouteInvitationEquipe(chemin)) {
             return MaterialPageRoute<void>(
               settings: settings,
-              builder: (_) => const QrGeneratorPage(),
+              builder: (_) => KeleganceNavigationGuard(
+                refus: const KeleganceAuthGate(),
+                child: const KeleganceEcranProtege(child: KelegancePageInvitationEquipe()),
+              ),
             );
+          }
+          return MaterialPageRoute<void>(
+            settings: settings,
+            builder: (_) => KeleganceNavigationGuard(
+              refus: const KeleganceAuthGate(),
+              child: const KeleganceEcranProtege(child: QrGeneratorPage()),
+            ),
+          );
+        }
+        if (KeleganceRouter.estRouteConsoleAdmin(chemin)) {
+          return MaterialPageRoute<void>(
+            settings: settings,
+            builder: (_) => KeleganceNavigationGuard(
+              refus: const KeleganceAuthGate(),
+              child: KeleganceConsoleChauffeurGuard(
+                refus: const PageLoginConsole(intentGestion: true),
+                child: const KeleganceEcranProtege(child: PageConsole()),
+              ),
+            ),
+          );
+        }
+        if (KeleganceRouter.estRouteGestionChauffeur(chemin)) {
+          return MaterialPageRoute<void>(
+            settings: settings,
+            builder: (_) => const KeleganceAuthGate(),
+          );
+        }
+        switch (chemin) {
           case KeleganceRouter.accueil:
           default:
             return MaterialPageRoute<void>(
@@ -1477,27 +1340,38 @@ class _KeleganceAuthGateState extends State<KeleganceAuthGate> {
   bool _resolvingRole = true;
   bool _ouvrirReservationClient = false;
   bool _ouvrirConsoleGestion = false;
+  bool _ouvrirConsoleAdmin = false;
+  bool _afficherRefusAccesAdmin = false;
 
   @override
   void initState() {
     super.initState();
     _authSubscription = _authService.user.listen(_onAuthStateChanged);
     _chargerIntentsEntrants();
+    if (KeleganceOtaUpdate.disponible) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted) return;
+        unawaited(KeleganceOtaUpdate.verifierAuDemarrage(context));
+      });
+    }
   }
 
   Future<void> _chargerIntentsEntrants() async {
     final reservation = await KeleganceDeepLink.aIntentReservationEnAttente();
     final gestion = await KeleganceDeepLink.aIntentGestionEnAttente();
+    final consoleAdmin = await KeleganceDeepLink.aIntentConsoleAdminEnAttente();
     if (!mounted) return;
-    if (!reservation && !gestion) return;
+    if (!reservation && !gestion && !consoleAdmin) return;
     setState(() {
       if (reservation) _ouvrirReservationClient = true;
       if (gestion) _ouvrirConsoleGestion = true;
+      if (consoleAdmin) _ouvrirConsoleAdmin = true;
     });
   }
 
   Future<void> _onAuthStateChanged(User? user) async {
     if (user == null) {
+      await keleganceSynchroniserServicesLiveAvecAuth(null);
       if (!mounted) return;
       setState(() {
         _user = null;
@@ -1505,6 +1379,11 @@ class _KeleganceAuthGateState extends State<KeleganceAuthGate> {
         _resolvingRole = false;
       });
       return;
+    }
+
+    await keleganceSynchroniserServicesLiveAvecAuth(user);
+    if (!kIsWeb) {
+      unawaited(KeleganceReveilMissions.demarrerSynchronisationFirestore());
     }
 
     if (!mounted) return;
@@ -1515,9 +1394,22 @@ class _KeleganceAuthGateState extends State<KeleganceAuthGate> {
 
     final role = await AuthService.resoudreRoleDepuisFirestore(user);
     if (!mounted) return;
+    if (role == 'chauffeur') {
+      await KeleganceRoles.initialiserPourUtilisateurCourant();
+    }
     var ouvrirReservation = _ouvrirReservationClient;
     var ouvrirGestion = _ouvrirConsoleGestion;
-    if (role != 'chauffeur') {
+    var refusAdmin = false;
+
+    if (_ouvrirConsoleAdmin) {
+      await KeleganceDeepLink.consommerIntentConsoleAdmin();
+      if (KeleganceRoles.peutAccederRoutesAdmin() && role == 'chauffeur') {
+        ouvrirGestion = true;
+      } else {
+        refusAdmin = true;
+        ouvrirGestion = false;
+      }
+    } else if (role != 'chauffeur') {
       ouvrirReservation = ouvrirReservation || await KeleganceDeepLink.aIntentReservationEnAttente();
       ouvrirGestion = false;
     } else {
@@ -1529,7 +1421,18 @@ class _KeleganceAuthGateState extends State<KeleganceAuthGate> {
       _resolvingRole = false;
       _ouvrirReservationClient = ouvrirReservation;
       _ouvrirConsoleGestion = ouvrirGestion;
+      _ouvrirConsoleAdmin = false;
+      _afficherRefusAccesAdmin = refusAdmin;
     });
+    if (refusAdmin && mounted) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted) return;
+        keleganceAfficherRefusPermission(
+          context,
+          detail: 'Accès /console ou /admin refusé — réservé aux Bras Droit.',
+        );
+      });
+    }
   }
 
   @override
@@ -1549,12 +1452,24 @@ class _KeleganceAuthGateState extends State<KeleganceAuthGate> {
     if (_user == null) {
       return PageSalon(
         intentReservation: _ouvrirReservationClient,
-        intentGestion: _ouvrirConsoleGestion,
+        intentGestion: _ouvrirConsoleGestion || keleganceRouteChauffeurDemandee(),
       );
     }
+    final accesChauffeurRequis =
+        keleganceRouteChauffeurDemandee(intentGestion: _ouvrirConsoleGestion);
+    if (accesChauffeurRequis && _role != 'chauffeur') {
+      return const PageLoginConsole(intentGestion: true);
+    }
     if (_role == 'chauffeur') {
-      return KeleganceEcranProtege(
-        child: PageConsole(ouvrirDirectement: _ouvrirConsoleGestion),
+      final vueRestreinte = keleganceRouteChauffeurDriver();
+      return KeleganceConsoleChauffeurGuard(
+        refus: const PageLoginConsole(intentGestion: true),
+        child: KeleganceEcranProtege(
+          child: PageConsole(
+            ouvrirDirectement: _ouvrirConsoleGestion,
+            forceVueChauffeurRestreinte: vueRestreinte,
+          ),
+        ),
       );
     }
     return KeleganceEcranProtege(
@@ -1662,7 +1577,9 @@ class _PageSalonState extends State<PageSalon> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      body: Container(
+      body: Stack(
+        children: [
+          Container(
         width: double.infinity,
         height: double.infinity,
         decoration: const BoxDecoration(
@@ -1737,7 +1654,7 @@ class _PageSalonState extends State<PageSalon> {
                             SizedBox(width: 12),
                             Expanded(
                               child: Text(
-                                'Connectez-vous à l\'espace Bras Droit Kelegance.',
+                                'Connectez-vous pour accéder à votre espace chauffeur.',
                                 style: TextStyle(color: Colors.white70, fontSize: 13, height: 1.35),
                               ),
                             ),
@@ -1777,11 +1694,34 @@ class _PageSalonState extends State<PageSalon> {
                     child: const Text("ACCÈS CHAUFFEUR PARTENAIRE", style: TextStyle(color: Colors.white10, fontSize: 10))
                   ),
                   const SizedBox(height: 20),
+                  SizedBox(height: MediaQuery.paddingOf(context).bottom + 28),
                 ],
               ),
             ),
           ),
         ),
+      ),
+          Positioned(
+            left: 0,
+            right: 0,
+            bottom: 0,
+            child: SafeArea(
+              top: false,
+              child: Padding(
+                padding: const EdgeInsets.only(bottom: 8),
+                child: Text(
+                  KeleganceConfig.versionAffichage,
+                  textAlign: TextAlign.center,
+                  style: TextStyle(
+                    color: Colors.white.withOpacity(0.28),
+                    fontSize: 11,
+                    letterSpacing: 0.5,
+                  ),
+                ),
+              ),
+            ),
+          ),
+        ],
       ),
     );
   }
@@ -1807,6 +1747,23 @@ class _PageLoginConsoleState extends State<PageLoginConsole> {
   final TextEditingController _proEmailController = TextEditingController();
   final TextEditingController _proPasswordController = TextEditingController();
   bool _isProLoading = false;
+  String? _tokenInvitation;
+
+  @override
+  void initState() {
+    super.initState();
+    _chargerInvitationDepuisUrl();
+  }
+
+  void _chargerInvitationDepuisUrl() {
+    if (!kIsWeb) return;
+    final invite = Uri.base.queryParameters['invite']?.trim();
+    final email = Uri.base.queryParameters['email']?.trim();
+    if (invite != null && invite.isNotEmpty) _tokenInvitation = invite;
+    if (email != null && email.isNotEmpty) {
+      _proEmailController.text = email;
+    }
+  }
 
   @override
   void dispose() {
@@ -1831,7 +1788,7 @@ class _PageLoginConsoleState extends State<PageLoginConsole> {
     setState(() => _isProLoading = false);
 
     if (user != null) {
-      await AuthService.declarerProfilChauffeur(user);
+      await AuthService.declarerProfilChauffeur(user, tokenInvitation: _tokenInvitation);
       if (!mounted) return;
     } else {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -1859,22 +1816,6 @@ class _PageLoginConsoleState extends State<PageLoginConsole> {
             crossAxisAlignment: CrossAxisAlignment.start, 
             children: [
               const Text("ESPACE\nPROFESSIONNEL", style: TextStyle(fontSize: 28, fontWeight: FontWeight.bold, color: Colors.amber)),
-              if (widget.intentGestion) ...[
-                const SizedBox(height: 16),
-                Container(
-                  width: double.infinity,
-                  padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
-                  decoration: BoxDecoration(
-                    color: KeleganceConfig.minuitBleuClair,
-                    borderRadius: BorderRadius.circular(10),
-                    border: Border.all(color: KeleganceConfig.or.withOpacity(0.35)),
-                  ),
-                  child: const Text(
-                    'Accès Bras Droit — scannez ou partagez le QR /gestion.',
-                    style: TextStyle(color: Colors.white70, fontSize: 12, height: 1.35),
-                  ),
-                ),
-              ],
               const SizedBox(height: 40),
               _fieldPro("Email professionnel", Icons.badge, controller: _proEmailController),
               const SizedBox(height: 20),
@@ -1993,14 +1934,16 @@ class _PageClientState extends State<PageClient> with SingleTickerProviderStateM
     final user = FirebaseAuth.instance.currentUser;
     if (user == null) return;
     try {
-      final results = await Future.wait([
-        FirebaseFirestore.instance.collection('chauffeurs').doc(user.uid).get(),
-        FirebaseFirestore.instance.collection('users').doc(user.uid).get(),
-      ]);
-      final role = results[1].data()?['role']?.toString().toLowerCase().trim() ?? '';
-      final chauffeurEnregistre = results[0].exists || role == 'chauffeur' || role == 'admin';
+      await KeleganceRoles.initialiserPourUtilisateurCourant();
+      final chauffeurDoc = await FirebaseFirestore.instance.collection('chauffeurs').doc(user.uid).get();
+      final usersDoc = await FirebaseFirestore.instance.collection('users').doc(user.uid).get();
+      final roleUsers = usersDoc.data()?['role']?.toString().toLowerCase();
+      final aProfilChauffeur = chauffeurDoc.exists ||
+          roleUsers == 'chauffeur' ||
+          roleUsers == 'driver' ||
+          usersDoc.data()?['accesChauffeur'] == true;
       if (!mounted) return;
-      setState(() => _aAccesConsoleChauffeur = chauffeurEnregistre);
+      setState(() => _aAccesConsoleChauffeur = aProfilChauffeur);
     } catch (e) {
       if (kDebugMode) debugPrint('Kelegance vérif. profil chauffeur: $e');
     }
@@ -2375,15 +2318,22 @@ class _PageClientState extends State<PageClient> with SingleTickerProviderStateM
         centerTitle: true,
         automaticallyImplyLeading: false,
         actions: [
-          if (_aAccesConsoleChauffeur)
-            TextButton.icon(
-              onPressed: _revenirConsoleChauffeur,
-              icon: const Icon(Icons.local_taxi_outlined, color: Colors.amber, size: 16),
-              label: const Text(
-                'Console Chauffeur',
-                style: TextStyle(color: Colors.amber, fontSize: 11, fontWeight: FontWeight.w400, letterSpacing: 0.2),
-              ),
-            ),
+          ValueListenableBuilder<bool>(
+            valueListenable: KeleganceRoles.notifierBrasDroit,
+            builder: (context, _, __) {
+              if (!_aAccesConsoleChauffeur) {
+                return const SizedBox.shrink();
+              }
+              return TextButton.icon(
+                onPressed: _revenirConsoleChauffeur,
+                icon: const Icon(Icons.local_taxi_outlined, color: Colors.amber, size: 16),
+                label: const Text(
+                  'Console Chauffeur',
+                  style: TextStyle(color: Colors.amber, fontSize: 11, fontWeight: FontWeight.w400, letterSpacing: 0.2),
+                ),
+              );
+            },
+          ),
           IconButton(
               icon: const Icon(Icons.help_outline, color: Colors.amber),
               onPressed: () => _showHelpModal(context)
@@ -3036,51 +2986,56 @@ class _PageClientState extends State<PageClient> with SingleTickerProviderStateM
     final user = FirebaseAuth.instance.currentUser;
     if (user == null) return const SizedBox.shrink();
 
-    return StreamBuilder<QuerySnapshot>(
-      stream: FirebaseFirestore.instance.collection('missions').where('client', isEqualTo: user.email).snapshots(),
-      builder: (context, snapshot) {
-        if (!snapshot.hasData) return const SizedBox.shrink();
-        final actives = snapshot.data!.docs.where((doc) {
-          final statut = (doc.data() as Map<String, dynamic>)['statut']?.toString() ?? '';
-          return _statutCommunicationClientActive(statut);
-        }).toList();
-        if (actives.isEmpty) return const SizedBox.shrink();
+    return KeleganceLivePulseHeader(
+      child: KeleganceMissionsStreamBuilder(
+        afficherIndicateurLive: false,
+        filtre: (docs) => docs
+            .where((doc) => (doc.data() as Map<String, dynamic>)['client'] == user.email)
+            .toList(),
+        builder: (context, snapshot, _) {
+          if (snapshot == null) return const SizedBox.shrink();
+          final actives = snapshot.docs.where((doc) {
+            final statut = (doc.data() as Map<String, dynamic>)['statut']?.toString() ?? '';
+            return _statutCommunicationClientActive(statut);
+          }).toList();
+          if (actives.isEmpty) return const SizedBox.shrink();
 
-        final data = actives.first.data() as Map<String, dynamic>;
-        final miroir = _miroirStatutClient(data['statut']?.toString() ?? '', data['notificationClient']?.toString());
-        final tel = _extraireTelChauffeur(data);
+          final data = actives.first.data() as Map<String, dynamic>;
+          final miroir = _miroirStatutClient(data['statut']?.toString() ?? '', data['notificationClient']?.toString());
+          final tel = _extraireTelChauffeur(data);
 
-        return Container(
-          margin: const EdgeInsets.only(bottom: 18),
-          padding: const EdgeInsets.all(14),
-          decoration: BoxDecoration(
-            gradient: LinearGradient(
-              colors: [miroir.couleur.withOpacity(0.18), const Color(0xFF0D0D0D)],
-            ),
-            borderRadius: BorderRadius.circular(12),
-            border: Border.all(color: miroir.couleur.withOpacity(0.45)),
-          ),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Row(
-                children: [
-                  Icon(miroir.icone, color: miroir.couleur, size: 20),
-                  const SizedBox(width: 8),
-                  Expanded(
-                    child: Text(
-                      miroir.libelle,
-                      style: TextStyle(color: miroir.couleur, fontWeight: FontWeight.w600, fontSize: 13),
-                    ),
-                  ),
-                ],
+          return Container(
+            margin: const EdgeInsets.only(bottom: 18),
+            padding: const EdgeInsets.all(14),
+            decoration: BoxDecoration(
+              gradient: LinearGradient(
+                colors: [miroir.couleur.withOpacity(0.18), const Color(0xFF0D0D0D)],
               ),
-              const SizedBox(height: 12),
-              _buildBoutonsCommunicationClient(tel),
-            ],
-          ),
-        );
-      },
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(color: miroir.couleur.withOpacity(0.45)),
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    Icon(miroir.icone, color: miroir.couleur, size: 20),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: Text(
+                        miroir.libelle,
+                        style: TextStyle(color: miroir.couleur, fontWeight: FontWeight.w600, fontSize: 13),
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 12),
+                _buildBoutonsCommunicationClient(tel),
+              ],
+            ),
+          );
+        },
+      ),
     );
   }
 
@@ -3093,20 +3048,16 @@ class _PageClientState extends State<PageClient> with SingleTickerProviderStateM
       );
     }
 
-    return StreamBuilder<QuerySnapshot>(
-      stream: FirebaseFirestore.instance
-          .collection('missions')
-          .where('client', isEqualTo: user.email)
-          .snapshots(),
-      builder: (context, snapshot) {
-        if (snapshot.hasError) {
-          return Center(child: Text("Erreur : ${snapshot.error}"));
-        }
-        if (snapshot.connectionState == ConnectionState.waiting) {
+    return KeleganceMissionsStreamBuilder(
+      filtre: (docs) => docs
+          .where((doc) => (doc.data() as Map<String, dynamic>)['client'] == user.email)
+          .toList(),
+      builder: (context, snapshot, live) {
+        if (snapshot == null) {
           return const Center(child: CircularProgressIndicator(color: Colors.amber));
         }
 
-        final docs = KeleganceMissionTri.trierChronologique(snapshot.data?.docs ?? []);
+        final docs = KeleganceMissionTri.trierChronologique(snapshot.docs);
 
         if (docs.isEmpty) {
           return ListView(
@@ -3128,6 +3079,14 @@ class _PageClientState extends State<PageClient> with SingleTickerProviderStateM
           padding: const EdgeInsets.all(20),
           children: [
             _lbl("MES PROCHAINES COURSES"),
+            if (live)
+              Padding(
+                padding: const EdgeInsets.only(bottom: 8),
+                child: Text(
+                  'Synchronisation…',
+                  style: TextStyle(color: Colors.amber.withOpacity(0.7), fontSize: 10, fontStyle: FontStyle.italic),
+                ),
+              ),
             const SizedBox(height: 10),
             ...docs.map((doc) {
               final data = doc.data() as Map<String, dynamic>;
@@ -3162,20 +3121,13 @@ class _PageClientState extends State<PageClient> with SingleTickerProviderStateM
   // 2. VUE SPÉCIFIQUE CHAUFFEUR / ADMIN
   // =========================================================================
   Widget _buildChauffeurAgendaView() {
-    return StreamBuilder<QuerySnapshot>(
-      stream: FirebaseFirestore.instance
-          .collection('missions')
-          .orderBy('date')
-          .snapshots(),
-      builder: (context, snapshot) {
-        if (snapshot.hasError) {
-          return Center(child: Text("Erreur : ${snapshot.error}"));
-        }
-        if (snapshot.connectionState == ConnectionState.waiting) {
+    return KeleganceMissionsStreamBuilder(
+      builder: (context, snapshot, live) {
+        if (snapshot == null) {
           return const Center(child: CircularProgressIndicator(color: Colors.amber));
         }
 
-        final docs = KeleganceMissionTri.trierChronologique(snapshot.data?.docs ?? []);
+        final docs = KeleganceMissionTri.trierChronologique(snapshot.docs);
 
         if (docs.isEmpty) {
           return ListView(
@@ -3197,6 +3149,14 @@ class _PageClientState extends State<PageClient> with SingleTickerProviderStateM
           padding: const EdgeInsets.all(20),
           children: [
             _lbl("TOUTES LES DEMANDES CLIENTS"),
+            if (live)
+              Padding(
+                padding: const EdgeInsets.only(bottom: 8),
+                child: Text(
+                  'Mise à jour en direct…',
+                  style: TextStyle(color: Colors.amber.withOpacity(0.7), fontSize: 10, fontStyle: FontStyle.italic),
+                ),
+              ),
             const SizedBox(height: 10),
             ...docs.map((doc) {
               final data = doc.data() as Map<String, dynamic>;
@@ -3324,20 +3284,34 @@ class _PageClientState extends State<PageClient> with SingleTickerProviderStateM
       );
     }
 
-    return StreamBuilder<QuerySnapshot>(
-      stream: FirebaseFirestore.instance
-          .collection('factures')
-          .where('client', isEqualTo: user.email)
-          .snapshots(),
-      builder: (context, snapshot) {
-        if (snapshot.hasError) {
-          return Center(child: Text("Erreur : ${snapshot.error}"));
-        }
-        if (snapshot.connectionState == ConnectionState.waiting) {
+    return KeleganceFacturesStreamBuilder(
+      filtre: (docs) {
+        final mail = user.email?.trim().toLowerCase();
+        return docs
+            .where((doc) => KeleganceFacturesService.peutVoirFacture(
+                  doc.data() as Map<String, dynamic>,
+                  email: mail,
+                ))
+            .toList();
+      },
+      builder: (context, snapshot, live) {
+        if (snapshot == null) {
           return const Center(child: CircularProgressIndicator(color: Colors.amber));
         }
 
-        final docs = snapshot.data?.docs ?? [];
+        final docs = KeleganceFacturesService.trierParDateRecente(snapshot.docs);
+        final enAttente = docs.where((d) {
+          final s = KeleganceFacturesService.presenterStatut(
+            (d.data() as Map<String, dynamic>)['statut']?.toString(),
+          );
+          return s.libelle == 'En attente';
+        }).length;
+        final payees = docs.where((d) {
+          final s = KeleganceFacturesService.presenterStatut(
+            (d.data() as Map<String, dynamic>)['statut']?.toString(),
+          );
+          return s.libelle == 'Payée';
+        }).length;
 
         if (docs.isEmpty) {
           return ListView(
@@ -3347,9 +3321,15 @@ class _PageClientState extends State<PageClient> with SingleTickerProviderStateM
               const SizedBox(height: 20),
               const Center(
                 child: Text(
-                  "Aucun document disponible pour le moment.",
+                  "Aucune facture disponible pour le moment.",
                   style: TextStyle(color: Colors.white60, fontStyle: FontStyle.italic),
                 ),
+              ),
+              const SizedBox(height: 28),
+              const Divider(color: Colors.white12),
+              const SizedBox(height: 16),
+              const KeleganceListeBonsCommandeRetour(
+                titre: 'MES BONS DE COMMANDE RETOUR',
               ),
             ],
           );
@@ -3359,24 +3339,78 @@ class _PageClientState extends State<PageClient> with SingleTickerProviderStateM
           padding: const EdgeInsets.all(20),
           children: [
             _lbl("MES DOCUMENTS"),
-            const SizedBox(height: 10),
+            if (live)
+              Padding(
+                padding: const EdgeInsets.only(top: 6, bottom: 4),
+                child: Text(
+                  'Données financières synchronisées',
+                  textAlign: TextAlign.center,
+                  style: TextStyle(color: Colors.greenAccent.withOpacity(0.8), fontSize: 10, letterSpacing: 0.4),
+                ),
+              ),
+            const SizedBox(height: 8),
+            Row(
+              children: [
+                _buildPastilleStatutFacture('En attente', enAttente, Colors.orangeAccent),
+                const SizedBox(width: 8),
+                _buildPastilleStatutFacture('Payées', payees, Colors.greenAccent),
+                const SizedBox(width: 8),
+                _buildPastilleStatutFacture('Total', docs.length, Colors.amber),
+              ],
+            ),
+            const SizedBox(height: 14),
             ...docs.map((doc) {
               final data = doc.data() as Map<String, dynamic>;
-              
-              String numero = data['numero'] ?? 'Facture #0000';
-              String dateText = data['date'] ?? 'Date inconnue';
-              String montant = data['montant'] ?? '0.00€';
+              final numero = data['numero'] ?? 'Facture #0000';
+              final dateText = data['date'] ?? 'Date inconnue';
+              final montant = data['montant'] ?? '0.00€';
+              final statut = KeleganceFacturesService.presenterStatut(data['statut']?.toString());
 
               return _factureTile(
                 numero,
                 dateText,
                 montant,
+                statutLibelle: statut.libelle,
+                statutCouleur: statut.couleur,
                 lienWeb: data['lienWeb']?.toString(),
+                miseAJourLive: live,
               );
-            }).toList(),
+            }),
+            const SizedBox(height: 28),
+            const Divider(color: Colors.white12),
+            const SizedBox(height: 16),
+            const KeleganceListeBonsCommandeRetour(
+              titre: 'MES BONS DE COMMANDE RETOUR',
+            ),
           ],
         );
       },
+    );
+  }
+
+  Widget _buildPastilleStatutFacture(String label, int count, Color couleur) {
+    return Expanded(
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
+        decoration: BoxDecoration(
+          color: couleur.withOpacity(0.12),
+          borderRadius: BorderRadius.circular(8),
+          border: Border.all(color: couleur.withOpacity(0.35)),
+        ),
+        child: Column(
+          children: [
+            Text(
+              '$count',
+              style: TextStyle(color: couleur, fontWeight: FontWeight.bold, fontSize: 16),
+            ),
+            Text(
+              label,
+              textAlign: TextAlign.center,
+              style: TextStyle(color: couleur.withOpacity(0.9), fontSize: 9),
+            ),
+          ],
+        ),
+      ),
     );
   }
 
@@ -3396,7 +3430,7 @@ class _PageClientState extends State<PageClient> with SingleTickerProviderStateM
       context: context,
       builder: (BuildContext context) {
         return AlertDialog(
-          backgroundColor: Colors.grey[950],
+          backgroundColor: const Color(0xFF0A0A0A),
           shape: RoundedRectangleBorder(
             borderRadius: BorderRadius.circular(15),
             side: const BorderSide(color: Colors.amber, width: 1),
@@ -3485,20 +3519,104 @@ class _PageClientState extends State<PageClient> with SingleTickerProviderStateM
         ),
       );
 
-  Widget _factureTile(String ref, String date, String prix, {String? lienWeb}) => Card(
+  Widget _factureTile(
+    String ref,
+    String date,
+    String prix, {
+    String? lienWeb,
+    String? statutLibelle,
+    Color? statutCouleur,
+    bool miseAJourLive = false,
+  }) =>
+      AnimatedContainer(
+        duration: const Duration(milliseconds: 320),
         margin: const EdgeInsets.only(bottom: 10),
+        decoration: miseAJourLive
+            ? BoxDecoration(
+                borderRadius: BorderRadius.circular(12),
+                boxShadow: [
+                  BoxShadow(
+                    color: Colors.greenAccent.withOpacity(0.1),
+                    blurRadius: 8,
+                  ),
+                ],
+              )
+            : null,
+        child: Card(
+        margin: EdgeInsets.zero,
         color: Colors.white10,
         child: ListTile(
-            leading: const Icon(Icons.picture_as_pdf, color: Colors.redAccent),
+            leading: const Icon(Icons.receipt_long_outlined, color: Color(0xFFD4AF37)),
             title: Text(ref, style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
-            subtitle: Text(
-              lienWeb != null && lienWeb.isNotEmpty ? '$date · Consulter en ligne' : date,
-              style: const TextStyle(color: Colors.white60),
+            subtitle: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  lienWeb != null && lienWeb.isNotEmpty ? '$date · Consulter en ligne' : date,
+                  style: const TextStyle(color: Colors.white60),
+                ),
+                if (statutLibelle != null) ...[
+                  const SizedBox(height: 4),
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                    decoration: BoxDecoration(
+                      color: (statutCouleur ?? Colors.white54).withOpacity(0.15),
+                      borderRadius: BorderRadius.circular(6),
+                    ),
+                    child: Text(
+                      statutLibelle,
+                      style: TextStyle(
+                        color: statutCouleur ?? Colors.white54,
+                        fontSize: 10,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  ),
+                ],
+              ],
             ),
-            trailing: Text(prix, style: const TextStyle(color: Colors.amber, fontWeight: FontWeight.bold)),
+            trailing: lienWeb != null && lienWeb.isNotEmpty
+                ? Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Text(prix, style: const TextStyle(color: Colors.amber, fontWeight: FontWeight.bold)),
+                      IconButton(
+                        tooltip: 'Partager',
+                        icon: const Icon(Icons.ios_share_rounded, color: Colors.amber, size: 20),
+                        onPressed: () => unawaited(
+                          KeleganceDocumentsClient.partagerLien(
+                            context,
+                            KeleganceDocumentPartage(
+                              token: '',
+                              lienWeb: lienWeb,
+                              type: 'FACTURE TTC',
+                              titre: ref,
+                            ),
+                          ),
+                        ),
+                      ),
+                      IconButton(
+                        tooltip: 'Envoyer par e-mail',
+                        icon: const Icon(Icons.email_outlined, color: Colors.amber, size: 20),
+                        onPressed: () => unawaited(
+                          KeleganceDocumentsClient.envoyerLienParEmail(
+                            context,
+                            KeleganceDocumentPartage(
+                              token: '',
+                              lienWeb: lienWeb,
+                              type: 'FACTURE TTC',
+                              titre: ref,
+                            ),
+                          ),
+                        ),
+                      ),
+                    ],
+                  )
+                : Text(prix, style: const TextStyle(color: Colors.amber, fontWeight: FontWeight.bold)),
             onTap: lienWeb != null && lienWeb.isNotEmpty
                 ? () => unawaited(launchUrl(Uri.parse(lienWeb), mode: LaunchMode.externalApplication))
                 : null),
+      ),
       );
 
   Widget _buildServiceIcons() => Column(
@@ -3624,7 +3742,7 @@ class _PageClientState extends State<PageClient> with SingleTickerProviderStateM
       nouveauStatut = "EN COURSE";
     } else if (statutActuel == "EN COURSE") {
       nouveauStatut = "TERMINÉ";
-      // Facture PDF + e-mail : Cloud Function onMissionTerminee (statut TERMINÉ)
+      // Facture électronique + e-mail : Cloud Function onMissionTerminee (statut TERMINÉ)
     } else {
       nouveauStatut = "PLANIFIÉ";
     }
@@ -3660,14 +3778,13 @@ class _PageClientState extends State<PageClient> with SingleTickerProviderStateM
             ),
             const SizedBox(height: 20),
             Expanded(
-              child: StreamBuilder<QuerySnapshot>(
-                stream: _missionsRef.snapshots(),
-                builder: (context, snapshot) {
-                  if (!snapshot.hasData) {
+              child: KeleganceMissionsStreamBuilder(
+                builder: (context, snapshot, live) {
+                  if (snapshot == null) {
                     return const Center(child: CircularProgressIndicator(color: Colors.amber));
                   }
 
-                  final docs = KeleganceMissionTri.trierChronologique(snapshot.data!.docs);
+                  final docs = KeleganceMissionTri.trierChronologique(snapshot.docs);
 
                   if (docs.isEmpty) {
                     return const Center(
@@ -3689,7 +3806,22 @@ class _PageClientState extends State<PageClient> with SingleTickerProviderStateM
                       final itineraire = KeleganceGestionReservations.formaterItineraire(data);
                       final statut = data['statut'] ?? 'PLANIFIÉ';
 
-                      return _resItem(id, heure, client, itineraire, statut, data);
+                      return AnimatedContainer(
+                        duration: const Duration(milliseconds: 350),
+                        curve: Curves.easeOut,
+                        decoration: live && index == 0
+                            ? BoxDecoration(
+                                borderRadius: BorderRadius.circular(12),
+                                boxShadow: [
+                                  BoxShadow(
+                                    color: Colors.amber.withOpacity(0.12),
+                                    blurRadius: 8,
+                                  ),
+                                ],
+                              )
+                            : null,
+                        child: _resItem(id, heure, client, itineraire, statut, data),
+                      );
                     },
                   );
                 },
@@ -3874,7 +4006,7 @@ class _PageClientState extends State<PageClient> with SingleTickerProviderStateM
                     backgroundColor: const Color(0xff121212),
                     title: const Text("REVENUS & FACTURES", style: TextStyle(color: Colors.amber, fontWeight: FontWeight.bold, fontSize: 16)),
                     content: const Text(
-                      "Les factures sont générées automatiquement (PDF + e-mail client) à la fin de course. Le bon de commande est envoyé dès la réservation.",
+                      "Les factures sont générées automatiquement (lien web + e-mail client) à la fin de course. Le bon de commande est envoyé dès la réservation.",
                       style: TextStyle(color: Colors.white70, fontSize: 14),
                     ),
                     actions: [
@@ -4326,8 +4458,13 @@ class KeleganceOverlayBubble extends StatelessWidget {
 // --- 1. DÉCLARATION INDISPENSABLE DE LA PAGE ---
 class PageConsole extends StatefulWidget {
   final bool ouvrirDirectement;
+  final bool forceVueChauffeurRestreinte;
 
-  const PageConsole({super.key, this.ouvrirDirectement = false});
+  const PageConsole({
+    super.key,
+    this.ouvrirDirectement = false,
+    this.forceVueChauffeurRestreinte = false,
+  });
 
   @override
   State<PageConsole> createState() => _PageConsoleState();
@@ -4602,6 +4739,7 @@ class _PageReservationInstantaneeState extends State<_PageReservationInstantanee
               style: const TextStyle(color: Colors.white, fontSize: 13, fontWeight: FontWeight.w400),
               decoration: _champ('Lieu de prise en charge'),
               onEdited: _invaliderItineraireChauffeur,
+              onSelected: (_) => _invaliderItineraireChauffeur(),
             ),
             KeleganceAdresseAutocomplete(
               controller: _destCtrl,
@@ -4609,6 +4747,7 @@ class _PageReservationInstantaneeState extends State<_PageReservationInstantanee
               style: const TextStyle(color: Colors.white, fontSize: 13, fontWeight: FontWeight.w400),
               decoration: _champ('Destination'),
               onEdited: _invaliderItineraireChauffeur,
+              onSelected: (_) => _invaliderItineraireChauffeur(),
             ),
             const SizedBox(height: 8),
             OutlinedButton(
@@ -4634,7 +4773,7 @@ class _PageReservationInstantaneeState extends State<_PageReservationInstantanee
               subtitle: Text(
                 _priseEnChargeRetourPersonnalisee
                     ? 'Retour personnalisé : prise en charge différente de la destination aller'
-                    : 'Par défaut : retour depuis la destination vers le lieu de prise en charge aller',
+                    : 'Par défaut : le trajet retour s\'effectuera depuis le point d\'arrivée du trajet aller',
                 style: const TextStyle(color: Colors.white54, fontSize: 11),
               ),
               value: _planifierRetour,
@@ -4675,6 +4814,7 @@ class _PageReservationInstantaneeState extends State<_PageReservationInstantanee
                   labelText: 'Prise en charge retour',
                   style: const TextStyle(color: Colors.white, fontSize: 13),
                   decoration: _champ('Prise en charge retour (adresse C)'),
+                  onSelected: (_) => _invaliderItineraireChauffeur(),
                 ),
               if (_departCtrl.text.trim().isNotEmpty && _destCtrl.text.trim().isNotEmpty) ...[
                 const SizedBox(height: 8),
@@ -4802,6 +4942,100 @@ class _PageReservationInstantaneeState extends State<_PageReservationInstantanee
   }
 }
 
+/// Itinéraire in-app (Directions API) — sans Navigator ni GPS externe.
+abstract final class KeleganceItineraireInApp {
+  static List<LatLng> decoderPolyline(String encoded) {
+    final points = <LatLng>[];
+    var index = 0;
+    var lat = 0;
+    var lng = 0;
+    while (index < encoded.length) {
+      var shift = 0;
+      var result = 0;
+      int b;
+      do {
+        b = encoded.codeUnitAt(index++) - 63;
+        result |= (b & 0x1f) << shift;
+        shift += 5;
+      } while (b >= 0x20);
+      final dlat = (result & 1) != 0 ? ~(result >> 1) : (result >> 1);
+      lat += dlat;
+      shift = 0;
+      result = 0;
+      do {
+        b = encoded.codeUnitAt(index++) - 63;
+        result |= (b & 0x1f) << shift;
+        shift += 5;
+      } while (b >= 0x20);
+      final dlng = (result & 1) != 0 ? ~(result >> 1) : (result >> 1);
+      lng += dlng;
+      points.add(LatLng(lat / 1e5, lng / 1e5));
+    }
+    return points;
+  }
+
+  static Future<({
+    List<LatLng> points,
+    String resume,
+    LatLng origine,
+    LatLng destination,
+  })?> charger(String origin, String destination) async {
+    final o = origin.trim();
+    final d = destination.trim();
+    if (o.isEmpty || d.isEmpty) return null;
+
+    try {
+      final url = Uri.parse(
+        'https://maps.googleapis.com/maps/api/directions/json'
+        '?origin=${Uri.encodeComponent(o)}'
+        '&destination=${Uri.encodeComponent(d)}'
+        '&mode=driving'
+        '&language=fr'
+        '&key=${KeleganceConfig.googleMapsApiKey}',
+      );
+      final response = await http.get(url).timeout(const Duration(seconds: 10));
+      if (response.statusCode != 200) return null;
+
+      final json = jsonDecode(response.body) as Map<String, dynamic>;
+      if (json['status'] != 'OK') return null;
+
+      final routes = json['routes'] as List?;
+      if (routes == null || routes.isEmpty) return null;
+
+      final route = routes.first as Map<String, dynamic>;
+      final legs = route['legs'] as List?;
+      if (legs == null || legs.isEmpty) return null;
+
+      final leg = legs.first as Map<String, dynamic>;
+      final distance = leg['distance']?['text']?.toString() ?? '';
+      final duration = leg['duration']?['text']?.toString() ?? '';
+      final resume = [distance, duration].where((e) => e.isNotEmpty).join(' · ');
+
+      final poly = route['overview_polyline']?['points']?.toString();
+      if (poly == null || poly.isEmpty) return null;
+
+      final start = leg['start_location'] as Map<String, dynamic>;
+      final end = leg['end_location'] as Map<String, dynamic>;
+
+      return (
+        points: decoderPolyline(poly),
+        resume: resume.isNotEmpty ? resume : 'Itinéraire calculé',
+        origine: LatLng(
+          (start['lat'] as num).toDouble(),
+          (start['lng'] as num).toDouble(),
+        ),
+        destination: LatLng(
+          (end['lat'] as num).toDouble(),
+          (end['lng'] as num).toDouble(),
+        ),
+      );
+    } catch (e) {
+      if (kDebugMode) debugPrint('KeleganceItineraireInApp: $e');
+      return null;
+    }
+  }
+}
+
 /// Lancement navigation externe + retour au premier plan (Android).
 abstract final class KeleganceNavigation {
   static const MethodChannel channel = MethodChannel('com.example.kelegance_neuf/navigation');
@@ -4844,8 +5078,8 @@ abstract final class KeleganceNavigation {
     return course['depart']?.toString().trim() ?? '';
   }
 
-  /// v4.0.0 — URI Google Maps : recherche textuelle universelle hors hubs.
-  static String construireUriGoogleMaps(String adresse) {
+  /// Schéma URI direct — jamais d'URL https (évite pop-up navigateur sur PWA).
+  static String construireUriNavigationNative(String adresse) {
     final trimmed = adresse.trim();
     if (trimmed.isEmpty) return '';
 
@@ -4858,11 +5092,57 @@ abstract final class KeleganceNavigation {
       }
     }
 
-    if (estHubTransport(trimmed)) {
-      return 'google.navigation:q=${Uri.encodeComponent(trimmed)}&mode=d';
+    return 'googlemaps://?q=${Uri.encodeComponent(trimmed)}';
+  }
+
+  static Future<void> ouvrirAppleMaps(String adresse) async {
+    final trimmed = adresse.trim();
+    if (trimmed.isEmpty) return;
+    final uri = Uri.parse('maps://?daddr=${Uri.encodeComponent(trimmed)}&dirflg=d');
+    try {
+      if (await canLaunchUrl(uri)) {
+        await launchUrl(uri, mode: LaunchMode.externalApplication);
+        return;
+      }
+    } catch (_) {}
+    await launchUrl(
+      Uri.parse('https://maps.apple.com/?daddr=${Uri.encodeComponent(trimmed)}&dirflg=d'),
+      mode: LaunchMode.externalApplication,
+    );
+  }
+
+  static Future<void> ouvrirGoogleMaps(String adresse) async {
+    final trimmed = adresse.trim();
+    if (trimmed.isEmpty) return;
+
+    if (kIsWeb) {
+      KeleganceMapsLaunch.ouvrirNatif(trimmed);
+      return;
     }
 
-    return 'https://www.google.com/maps/search/?api=1&query=${Uri.encodeComponent(trimmed)}';
+    if (keleganceEstAndroid) {
+      final uriNative = construireUriNavigationNative(trimmed);
+      if (await lancerAndroid(package: googleMapsPackage, uri: uriNative)) return;
+    }
+
+    final uriNative = Uri.parse(construireUriNavigationNative(trimmed));
+    try {
+      final ouvert = await launchUrl(uriNative, mode: LaunchMode.externalApplication);
+      if (ouvert) return;
+    } catch (_) {}
+
+    final uriNav = Uri.parse('google.navigation:q=${Uri.encodeComponent(trimmed)}&mode=d');
+    try {
+      final ouvert = await launchUrl(uriNav, mode: LaunchMode.externalApplication);
+      if (ouvert) return;
+    } catch (_) {}
+
+    final uriIos = Uri.parse(
+      'comgooglemaps://?daddr=${Uri.encodeComponent(trimmed)}&directionsmode=driving',
+    );
+    try {
+      await launchUrl(uriIos, mode: LaunchMode.externalApplication);
+    } catch (_) {}
   }
 
   static Future<bool> lancerAndroid({required String package, required String uri}) async {
@@ -4887,7 +5167,7 @@ abstract final class KeleganceNavigation {
 }
 
 // --- 2. Console chauffeur v7.0.0 Élite (gestion réservations + GPS destination cliquable) ---
-enum _EcranChauffeur { accueil, suiviHistorique, revenus, reservations, profil, parametres }
+enum _EcranChauffeur { accueil, suiviHistorique, revenus, reservations, profil, parametres, revenusFactures, bonsRetour }
 
 enum _PeriodeRevenu { semaine, mois }
 
@@ -4927,17 +5207,37 @@ class _PageConsoleState extends State<PageConsole> with WidgetsBindingObserver {
   bool _showCA = true;
   double _caJournalier = 0.0;
   double _volumeAlerte = 1.0;
-  String _gpsDefaut = 'Google Maps';
+  String _gpsDefaut = KeleganceConsolePrefs.gpsGoogleMaps;
+  bool _gpsAutomatique = true;
+  bool _statutAutomatique = false;
+  LatLng? _latLngPriseEnCharge;
+  LatLng? _latLngDestination;
+  bool _statutAutoSurPlaceDeclenche = false;
   _PeriodeRevenu _periodeRevenu = _PeriodeRevenu.semaine;
   DateTime _jourRevenuSelectionne = DateTime.now();
-  StreamSubscription<QuerySnapshot>? _abonnementCaJournalier;
+  StreamSubscription<KeleganceMissionsSnapshot>? _abonnementLiveMissions;
   StreamSubscription<Position>? _abonnementGps;
-  StreamSubscription<QuerySnapshot>? _abonnementAlertesMissions;
+  StreamSubscription<DocumentSnapshot<Map<String, dynamic>>>? _abonnementSollicitationDispatch;
+  void Function()? _annulerDroitsAcces;
   Timer? _delaiSimulationAlerte;
 
   final Set<String> _missionsDejaAlertees = {};
-  bool _alerteCourseVisible = false;
+  /// Garde anti-doublon — une seule alerte course visible à la fois (Stack, pas showDialog).
+  bool _alerteCourseAffichee = false;
   bool _alertesInitialisees = false;
+  String? _alerteCourseDocId;
+  Map<String, dynamic>? _alerteCourseDonnees;
+  bool _alerteCourseSimulation = false;
+  int? _alerteCourseMinutesApproche;
+  bool _alerteCourseCalculEnCours = false;
+  bool _sosAffiche = false;
+
+  /// Aucune modale bloquante simultanée (course + SOS).
+  bool get _modaleConsoleBloquante => _alerteCourseAffichee || _sosAffiche;
+
+  /// Garde synchrone avant toute alerte course (Stack ou showDialog réglementaire).
+  bool _peutAfficherAlerteCourse() =>
+      mounted && !_alerteCourseAffichee && !_sosAffiche;
 
   final CollectionReference _missionsRef = FirebaseFirestore.instance.collection('missions');
   GoogleMapController? _mapController;
@@ -4950,10 +5250,21 @@ class _PageConsoleState extends State<PageConsole> with WidgetsBindingObserver {
   String _currentStep = "AUCUNE"; // AUCUNE, EN_ROUTE, SUR_PLACE, EN_COURSE
 
   bool _overlayCourseVisible = false;
+  bool _demarrageCourseEnCours = false;
   bool _showRecenterButton = false;
   bool _recentrageProgramme = false;
   bool _carteManipuleeManuellement = false;
   LatLng? _dernierCentreCarte;
+  String _nomProfilChauffeur = '—';
+
+  bool _guidageInAppOuvert = false;
+  bool _guidageVersDestination = false;
+  bool _guidageChargement = false;
+  List<LatLng> _polyligneGuidage = [];
+  Set<Marker> _markersGuidage = {};
+  String _guidageResume = '';
+  String _guidageAdresseCible = '';
+  int _guidageGeneration = 0;
 
   final ScrollController _scrollHistorique = ScrollController();
   final ScrollController _scrollRevenus = ScrollController();
@@ -4975,6 +5286,19 @@ class _PageConsoleState extends State<PageConsole> with WidgetsBindingObserver {
   bool get _overlayNavigationAutorise =>
       _courseChauffeurActive && (_currentStep == 'EN_ROUTE' || _currentStep == 'EN_COURSE');
 
+  bool get _accesBrasDroit => KeleganceRoles.estBrasDroit();
+  bool get _vueChauffeurRestreinte =>
+      widget.forceVueChauffeurRestreinte || keleganceRouteChauffeurDriver();
+  bool get _accesComplet => _accesBrasDroit && !_vueChauffeurRestreinte;
+
+  Future<void> _synchroniserPresenceFirestore() async {
+    await KelegancePresenceService.publier(
+      enLigne: _isOnline,
+      enCourse: _chauffeurOccupe,
+      nom: FirebaseAuth.instance.currentUser?.displayName,
+    );
+  }
+
   @override
   void initState() {
     super.initState();
@@ -4983,14 +5307,95 @@ class _PageConsoleState extends State<PageConsole> with WidgetsBindingObserver {
     if (widget.ouvrirDirectement) {
       unawaited(KeleganceDeepLink.consommerIntentGestion());
     }
+    unawaited(
+      KeleganceRoles.initialiserPourUtilisateurCourant().then((_) {
+        if (!mounted) return;
+        if (_vueChauffeurRestreinte || (!_accesComplet && widget.ouvrirDirectement)) {
+          setState(() => _ecran = _EcranChauffeur.reservations);
+        }
+      }),
+    );
     KeleganceOverlayBridge.init(_onOverlayDemandeOuvertureApp);
     if (keleganceEstAndroid) {
       unawaited(_verifierPermissionOverlay());
     }
     _configurerSuiviGPS();
-    _demarrerSuiviCaJournalier();
-    _demarrerEcouteAlertesCourse();
+    _demarrerEcouteLiveMissions();
     unawaited(KeleganceAudioAlertes.initialiser());
+    unawaited(_chargerPreferencesConsole());
+    unawaited(_chargerPresenceInitiale());
+    unawaited(_chargerNomProfilChauffeur());
+    unawaited(KeleganceRoles.initialiserPourUtilisateurCourant());
+    _annulerDroitsAcces = KeleganceRoles.ecouterMisesAJour(() {
+      if (mounted) setState(() {});
+    });
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      _abonnementSollicitationDispatch = KeleganceDispatchSollicitation.demarrerEcoute(context);
+    });
+  }
+
+  Future<void> _chargerPresenceInitiale() async {
+    final enLigne = await KelegancePresenceService.chargerEnLigne();
+    if (!mounted || enLigne == null) return;
+    setState(() => _isOnline = enLigne);
+    await _synchroniserPresenceFirestore();
+  }
+
+  Future<void> _chargerNomProfilChauffeur() async {
+    final user = FirebaseAuth.instance.currentUser;
+    if (user == null) return;
+    try {
+      final results = await Future.wait([
+        FirebaseFirestore.instance.collection('chauffeurs').doc(user.uid).get(),
+        FirebaseFirestore.instance.collection('users').doc(user.uid).get(),
+      ]);
+      final data = <String, dynamic>{
+        ...?results[1].data(),
+        ...?results[0].data(),
+      };
+      var nom = KeleganceBonCommandeService.extraireNomAffichage(data);
+      if (nom == 'Client' || nom.isEmpty) {
+        nom = user.displayName?.trim() ?? '';
+      }
+      if (nom.isEmpty) {
+        final email = user.email?.trim();
+        if (email != null && email.contains('@')) {
+          nom = email.split('@').first;
+        }
+      }
+      if (!mounted) return;
+      setState(() => _nomProfilChauffeur = nom.isNotEmpty ? nom : '—');
+    } catch (e) {
+      if (kDebugMode) debugPrint('Kelegance nom profil chauffeur: $e');
+    }
+  }
+
+  Future<void> _chargerPreferencesConsole() async {
+    final prefs = await KeleganceConsolePrefs.charger();
+    if (!mounted) return;
+    setState(() {
+      _gpsAutomatique = prefs.gpsAutomatique;
+      _statutAutomatique = prefs.statutAutomatique;
+      _gpsDefaut = prefs.gpsDefaut;
+    });
+    KeleganceAudioAlertes.definirVolumeAlerte(_volumeAlerte);
+  }
+
+  Future<void> _sauvegarderPreferencesConsole() async {
+    await KeleganceConsolePrefs.sauvegarder(
+      gpsAutomatique: _gpsAutomatique,
+      statutAutomatique: _statutAutomatique,
+      gpsDefaut: _gpsDefaut,
+    );
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(
+        content: Text('Paramètres enregistrés.'),
+        backgroundColor: Color(0xFFD4AF37),
+        duration: Duration(seconds: 2),
+      ),
+    );
   }
 
   @override
@@ -4999,8 +5404,9 @@ class _PageConsoleState extends State<PageConsole> with WidgetsBindingObserver {
     KeleganceOverlayBridge.dispose();
     unawaited(_fermerOverlayCourse());
     _delaiSimulationAlerte?.cancel();
-    _abonnementAlertesMissions?.cancel();
-    _abonnementCaJournalier?.cancel();
+    _abonnementLiveMissions?.cancel();
+    _abonnementSollicitationDispatch?.cancel();
+    _annulerDroitsAcces?.call();
     _abonnementGps?.cancel();
     _mapController?.dispose();
     _scrollHistorique.dispose();
@@ -5015,7 +5421,10 @@ class _PageConsoleState extends State<PageConsole> with WidgetsBindingObserver {
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
-    if (state == AppLifecycleState.resumed) {
+    if (!_overlayNavigationAutorise) return;
+    if (state == AppLifecycleState.paused || state == AppLifecycleState.inactive) {
+      unawaited(_afficherOverlayNavigation());
+    } else if (state == AppLifecycleState.resumed) {
       unawaited(_fermerOverlayCourse());
     }
   }
@@ -5071,37 +5480,98 @@ class _PageConsoleState extends State<PageConsole> with WidgetsBindingObserver {
     unawaited(_fermerOverlayCourse());
   }
 
-  void _demarrerEcouteAlertesCourse() {
-    _abonnementAlertesMissions?.cancel();
-    _abonnementAlertesMissions = FirebaseFirestore.instance.collection('missions').snapshots().listen(
+  void _demarrerEcouteLiveMissions() {
+    _abonnementLiveMissions?.cancel();
+    _abonnementLiveMissions = KeleganceMissionsService.flux.listen(
       (snapshot) {
-        if (!_alertesInitialisees) {
-          for (final doc in snapshot.docs) {
-            _missionsDejaAlertees.add(doc.id);
-          }
-          _alertesInitialisees = true;
-          return;
-        }
-
-        if (!_isOnline || _chauffeurOccupe || _alerteCourseVisible) return;
-
-        for (final change in snapshot.docChanges) {
-          if (change.type != DocumentChangeType.added && change.type != DocumentChangeType.modified) continue;
-          final data = change.doc.data();
-          if (data == null) continue;
-
-          final statut = (data['statut']?.toString() ?? '').toUpperCase().trim();
-          if (statut != 'EN ATTENTE') continue;
-          if (_missionsDejaAlertees.contains(change.doc.id)) continue;
-
-          _missionsDejaAlertees.add(change.doc.id);
-          unawaited(_afficherPopupAlerteCourse(docId: change.doc.id, data: data));
-        }
+        if (!mounted) return;
+        _traiterAlertesMissions(snapshot);
+        _recalculerCaJournalier(snapshot.docs);
+        _synchroniserCourseActiveDepuisFirestore(snapshot);
       },
       onError: (e) {
-        if (kDebugMode) debugPrint('Kelegance alertes missions: $e');
+        if (kDebugMode) debugPrint('Kelegance live missions console: $e');
       },
     );
+  }
+
+  void _synchroniserCourseActiveDepuisFirestore(KeleganceMissionsSnapshot snapshot) {
+    final id = _activeCourseId;
+    if (id == null) return;
+
+    QueryDocumentSnapshot? doc;
+    for (final d in snapshot.docs) {
+      if (d.id == id) {
+        doc = d;
+        break;
+      }
+    }
+
+    if (doc == null) {
+      if (_currentStep != 'AUCUNE') {
+        setState(() {
+          _currentStep = 'AUCUNE';
+          _activeCourseId = null;
+          _activeCourseData = null;
+          _telephoneClientCourse = null;
+        });
+      }
+      return;
+    }
+
+    final data = doc.data() as Map<String, dynamic>;
+    final etape = KeleganceMissionsService.etapeDepuisStatut(data['statut']?.toString());
+    if (etape == null) return;
+
+    if (etape == 'AUCUNE') {
+      setState(() {
+        _currentStep = 'AUCUNE';
+        _activeCourseId = null;
+        _activeCourseData = null;
+        _telephoneClientCourse = null;
+      });
+      unawaited(_fermerOverlayCourse());
+      return;
+    }
+
+    if (etape != _currentStep || data['statut'] != _activeCourseData?['statut']) {
+      setState(() {
+        _currentStep = etape;
+        _activeCourseData = {...data};
+      });
+      _synchroniserOverlayNavigation();
+    }
+  }
+
+  void _traiterAlertesMissions(KeleganceMissionsSnapshot snapshot) {
+    if (!_alertesInitialisees) {
+      for (final doc in snapshot.docs) {
+        _missionsDejaAlertees.add(doc.id);
+      }
+      _alertesInitialisees = true;
+      return;
+    }
+
+    if (!_isOnline || _chauffeurOccupe || _modaleConsoleBloquante) return;
+
+    for (final change in snapshot.changes) {
+      if (change.type != DocumentChangeType.added && change.type != DocumentChangeType.modified) continue;
+      final raw = change.doc.data();
+      if (raw is! Map<String, dynamic>) continue;
+      final data = raw;
+
+      final statut = (data['statut']?.toString() ?? '').toUpperCase().trim();
+      if (statut != 'EN ATTENTE') continue;
+      if (!_accesBrasDroit) {
+        if (!KeleganceRoles.missionAssigneeAuCollaborateur(data)) continue;
+      }
+      if (_missionsDejaAlertees.contains(change.doc.id)) continue;
+      if (_modaleConsoleBloquante || !_peutAfficherAlerteCourse()) return;
+
+      _missionsDejaAlertees.add(change.doc.id);
+      unawaited(_afficherPopupAlerteCourse(docId: change.doc.id, data: data));
+      return;
+    }
   }
 
   Future<int> _calculerMinutesApproche(String adresseDepart) async {
@@ -5136,49 +5606,244 @@ class _PageConsoleState extends State<PageConsole> with WidgetsBindingObserver {
     }
   }
 
+  void _lancerGoogleMapsCourse(String adresse) {
+    final trimmed = adresse.trim();
+    if (trimmed.isEmpty) return;
+    if (_overlayNavigationAutorise) {
+      unawaited(_afficherOverlayNavigation());
+    }
+    unawaited(KeleganceNavigation.ouvrirGoogleMaps(trimmed));
+  }
+
   void _lancerGpsPrioritaire(String adresse) {
     final trimmed = adresse.trim();
     if (trimmed.isEmpty) return;
+    if (_overlayNavigationAutorise) {
+      unawaited(_afficherOverlayNavigation());
+    }
 
-    if (_gpsDefaut == 'Waze') {
+    if (_gpsDefaut == KeleganceConsolePrefs.gpsWaze) {
       unawaited(_ouvrirWazeNavigation(trimmed));
       return;
     }
-
-    final uri = KeleganceNavigation.construireUriGoogleMaps(trimmed);
-    if (uri.isEmpty) return;
-
-    if (keleganceEstAndroid) {
-      unawaited(KeleganceNavigation.lancerAndroid(package: KeleganceNavigation.googleMapsPackage, uri: uri));
+    if (_gpsDefaut == KeleganceConsolePrefs.gpsAppleMaps) {
+      unawaited(KeleganceNavigation.ouvrirAppleMaps(trimmed));
       return;
     }
-    unawaited(launchUrl(Uri.parse(uri), mode: LaunchMode.externalApplication));
+
+    unawaited(KeleganceNavigation.ouvrirGoogleMaps(trimmed));
   }
 
-  /// v6.9.9 — Re-lance Maps/Waze vers la destination finale (mise à jour itinéraire en course).
-  void _relancerGpsDestinationFinale() {
-    if (_activeCourseData == null) return;
-    final adresse = KeleganceNavigation.resoudreAdresseCourse(_activeCourseData!, versArrivee: true);
-    if (adresse.trim().isEmpty) {
+  void _declencherGpsExternePourEtapeCourante() {
+    final adresse = _adresseNavigationCourante();
+    if (adresse.isEmpty) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
           backgroundColor: Colors.orange,
-          content: Text('Adresse de destination indisponible.'),
+          content: Text('Adresse de navigation indisponible pour cette étape.'),
         ),
       );
       return;
     }
     _lancerGpsPrioritaire(adresse);
-    if (!mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        backgroundColor: Colors.green,
-        duration: const Duration(seconds: 2),
-        content: Text('Guidage $_gpsDefaut relancé vers la destination.'),
-      ),
-    );
   }
+
+  void _lancerNavigationAutomatiqueCourse() {
+    if (!_gpsAutomatique) return;
+    final adresse = _adresseNavigationCourante();
+    if (adresse.isNotEmpty) {
+      _lancerGoogleMapsCourse(adresse);
+    }
+  }
+
+  Future<LatLng?> _geocoderAdresseMission(String adresse) async {
+    final texte = adresse.trim();
+    if (texte.isEmpty) return null;
+    try {
+      final url = Uri.parse(
+        'https://maps.googleapis.com/maps/api/geocode/json'
+        '?address=${Uri.encodeComponent(texte)}'
+        '&language=fr'
+        '&key=${KeleganceConfig.googleMapsApiKey}',
+      );
+      final response = await http.get(url).timeout(const Duration(seconds: 6));
+      if (response.statusCode != 200) return null;
+      final json = jsonDecode(response.body) as Map<String, dynamic>;
+      if (json['status'] != 'OK') return null;
+      final loc = (json['results'] as List?)?.first?['geometry']?['location'] as Map?;
+      if (loc == null) return null;
+      final lat = (loc['lat'] as num?)?.toDouble();
+      final lng = (loc['lng'] as num?)?.toDouble();
+      if (lat == null || lng == null) return null;
+      return LatLng(lat, lng);
+    } catch (_) {
+      return null;
+    }
+  }
+
+  Future<void> _preparerGeocodageCourse(Map<String, dynamic> data) async {
+    _latLngPriseEnCharge = null;
+    _latLngDestination = null;
+    _statutAutoSurPlaceDeclenche = false;
+    final depart = data['depart']?.toString() ?? '';
+    final destination = data['destination']?.toString() ?? '';
+    final results = await Future.wait([
+      _geocoderAdresseMission(depart),
+      _geocoderAdresseMission(destination),
+    ]);
+    if (!mounted) return;
+    _latLngPriseEnCharge = results[0];
+    _latLngDestination = results[1];
+  }
+
+  void _evaluerStatutAutomatique() {
+    if (!_statutAutomatique || _latLngPriseEnCharge == null) return;
+    if (_currentStep != 'EN_ROUTE' || _statutAutoSurPlaceDeclenche) return;
+
+    final distance = Geolocator.distanceBetween(
+      _currentPosition.latitude,
+      _currentPosition.longitude,
+      _latLngPriseEnCharge!.latitude,
+      _latLngPriseEnCharge!.longitude,
+    );
+    if (distance <= 180) {
+      _statutAutoSurPlaceDeclenche = true;
+      unawaited(_passerSurPlaceManuel());
+    }
+  }
+
+  void _fermerGuidageInApp() {
+    if (!_guidageInAppOuvert && _polyligneGuidage.isEmpty) return;
+    setState(() {
+      _guidageInAppOuvert = false;
+      _guidageChargement = false;
+      _polyligneGuidage = [];
+      _markersGuidage = {};
+      _guidageResume = '';
+      _guidageAdresseCible = '';
+    });
+  }
+
+  void _ouvrirGuidageInApp({required bool versDestination}) {
+    if (_activeCourseData == null) return;
+
+    final adresse = KeleganceNavigation.resoudreAdresseCourse(
+      _activeCourseData!,
+      versArrivee: versDestination,
+    );
+    if (adresse.trim().isEmpty) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          backgroundColor: Colors.orange,
+          content: Text(
+            versDestination
+                ? 'Adresse de destination indisponible.'
+                : 'Adresse de prise en charge indisponible.',
+          ),
+        ),
+      );
+      return;
+    }
+
+    // Déjà ouvert sur le même mode : ne pas basculer (évite l'effet double-clic).
+    if (_guidageInAppOuvert && _guidageVersDestination == versDestination && !_guidageChargement) {
+      return;
+    }
+
+    setState(() {
+      _guidageInAppOuvert = true;
+      _guidageVersDestination = versDestination;
+      _guidageAdresseCible = adresse;
+      _guidageChargement = true;
+      _guidageResume = '';
+      _polyligneGuidage = [];
+      _markersGuidage = {};
+    });
+
+    unawaited(_chargerItineraireInApp(versDestination));
+  }
+
+  Future<void> _chargerItineraireInApp(bool versDestination) async {
+    final generation = ++_guidageGeneration;
+    final origine = '${_currentPosition.latitude},${_currentPosition.longitude}';
+    final destination = _guidageAdresseCible;
+
+    final result = await KeleganceItineraireInApp.charger(origine, destination);
+    if (!mounted || generation != _guidageGeneration) return;
+
+    if (result == null) {
+      setState(() => _guidageChargement = false);
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          backgroundColor: Colors.orange,
+          content: Text('Impossible de calculer l\'itinéraire. Réessayez.'),
+        ),
+      );
+      return;
+    }
+
+    final markers = <Marker>{
+      Marker(
+        markerId: const MarkerId('guidage_origine'),
+        position: result.origine,
+        icon: BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueAzure),
+      ),
+      Marker(
+        markerId: const MarkerId('guidage_destination'),
+        position: result.destination,
+        icon: BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueOrange),
+      ),
+    };
+
+    setState(() {
+      _guidageChargement = false;
+      _polyligneGuidage = result.points;
+      _markersGuidage = markers;
+      _guidageResume = result.resume;
+    });
+
+    if (_ecran == _EcranChauffeur.accueil) {
+      unawaited(_ajusterCameraSurItineraire(result.points));
+    }
+  }
+
+  Future<void> _ajusterCameraSurItineraire(List<LatLng> points) async {
+    final controller = _mapController;
+    if (controller == null || points.length < 2) return;
+
+    var minLat = points.first.latitude;
+    var maxLat = points.first.latitude;
+    var minLng = points.first.longitude;
+    var maxLng = points.first.longitude;
+    for (final p in points) {
+      if (p.latitude < minLat) minLat = p.latitude;
+      if (p.latitude > maxLat) maxLat = p.latitude;
+      if (p.longitude < minLng) minLng = p.longitude;
+      if (p.longitude > maxLng) maxLng = p.longitude;
+    }
+
+    try {
+      await controller.animateCamera(
+        CameraUpdate.newLatLngBounds(
+          LatLngBounds(
+            southwest: LatLng(minLat, minLng),
+            northeast: LatLng(maxLat, maxLng),
+          ),
+          72,
+        ),
+      );
+    } catch (_) {
+      await controller.animateCamera(CameraUpdate.newLatLng(points[points.length ~/ 2]));
+    }
+  }
+
+  /// Guidage vers la prise en charge (EN_ROUTE / SUR PLACE) — in-app uniquement.
+  void _relancerGpsVersClient() => _ouvrirGuidageInApp(versDestination: false);
+
+  /// Guidage vers la destination finale (EN_COURSE) — in-app uniquement.
+  void _relancerGpsDestinationFinale() => _ouvrirGuidageInApp(versDestination: true);
 
   void _accepterCourseDepuisAlerte(String docId, Map<String, dynamic> data, {bool simulation = false}) {
     if (!_isOnline) {
@@ -5205,15 +5870,14 @@ class _PageConsoleState extends State<PageConsole> with WidgetsBindingObserver {
     }
 
     setState(() {
+      _demarrageCourseEnCours = true;
+      _activerVueCourseImmersive();
+      _fermerGuidageInApp();
       _activeCourseId = docId;
       _activeCourseData = {...data, 'statut': 'EN_ROUTE'};
       _currentStep = 'EN_ROUTE';
-      _ecran = _EcranChauffeur.accueil;
       _telephoneClientCourse = KeleganceCommunication.extraireNumeroMission(data);
     });
-
-    final depart = KeleganceNavigation.resoudreAdresseCourse(data, versArrivee: false);
-    _lancerGpsPrioritaire(depart);
 
     if (!simulation) {
       unawaited(_mettreAJourStatutCourse(
@@ -5231,6 +5895,27 @@ class _PageConsoleState extends State<PageConsole> with WidgetsBindingObserver {
         }
       }));
     }
+
+    Future<void>.delayed(const Duration(milliseconds: 650), () {
+      if (mounted) setState(() => _demarrageCourseEnCours = false);
+    });
+
+    if (_gpsAutomatique) {
+      _lancerNavigationAutomatiqueCourse();
+    }
+    unawaited(_preparerGeocodageCourse(data));
+  }
+
+  void _fermerAlerteCourseAffichee() {
+    if (!_alerteCourseAffichee) return;
+    setState(() {
+      _alerteCourseAffichee = false;
+      _alerteCourseDocId = null;
+      _alerteCourseDonnees = null;
+      _alerteCourseSimulation = false;
+      _alerteCourseMinutesApproche = null;
+      _alerteCourseCalculEnCours = false;
+    });
   }
 
   Future<void> _afficherPopupAlerteCourse({
@@ -5238,14 +5923,54 @@ class _PageConsoleState extends State<PageConsole> with WidgetsBindingObserver {
     required Map<String, dynamic> data,
     bool simulation = false,
   }) async {
-    if (!mounted || _alerteCourseVisible) return;
-    _alerteCourseVisible = true;
+    if (!_peutAfficherAlerteCourse()) return;
+
+    // Verrou synchrone immédiat — aucun second showDialog / overlay ne peut passer.
+    _alerteCourseAffichee = true;
+    _alerteCourseCalculEnCours = true;
+    _alerteCourseDocId = docId;
+    _alerteCourseDonnees = data;
+    _alerteCourseSimulation = simulation;
+    _alerteCourseMinutesApproche = null;
+    setState(() {});
+
+    unawaited(KeleganceAudioAlertes.playInstantRequestSound());
 
     final minutesApproche = await _calculerMinutesApproche(data['depart']?.toString() ?? '');
-    if (!mounted) {
-      _alerteCourseVisible = false;
+    if (!mounted || !_alerteCourseAffichee || _alerteCourseDocId != docId) return;
+
+    setState(() {
+      _alerteCourseMinutesApproche = minutesApproche;
+      _alerteCourseCalculEnCours = false;
+    });
+  }
+
+  void _refuserCourseDepuisAlerte() {
+    final docId = _alerteCourseDocId;
+    final simulation = _alerteCourseSimulation;
+    unawaited(KeleganceAudioAlertes.stopInstantRequestSound());
+    if (docId != null && !simulation) {
+      unawaited(FirebaseFirestore.instance.collection('missions').doc(docId).update({'statut': 'ANNULÉ'}));
+    }
+    _fermerAlerteCourseAffichee();
+  }
+
+  void _accepterCourseDepuisAlerteOverlay() {
+    final docId = _alerteCourseDocId;
+    final data = _alerteCourseDonnees;
+    final simulation = _alerteCourseSimulation;
+    if (docId == null || data == null) {
+      _fermerAlerteCourseAffichee();
       return;
     }
+    unawaited(KeleganceAudioAlertes.stopInstantRequestSound());
+    _fermerAlerteCourseAffichee();
+    _accepterCourseDepuisAlerte(docId, data, simulation: simulation);
+  }
+
+  Widget _buildOverlayAlerteCourse() {
+    final data = _alerteCourseDonnees;
+    if (data == null) return const SizedBox.shrink();
 
     final villeDepart = KeleganceAdresse.extraireVille(data['depart']?.toString() ?? '');
     final destinationMacro = KeleganceAdresse.formaterDestinationMacro(data['destination']?.toString() ?? '');
@@ -5254,97 +5979,106 @@ class _PageConsoleState extends State<PageConsole> with WidgetsBindingObserver {
     final prixText = prix != null ? prix.toStringAsFixed(2) : '—';
     final fraisText = ventilation != null ? ventilation.fraisService.toStringAsFixed(2) : '—';
     final netText = ventilation != null ? ventilation.netChauffeur.toStringAsFixed(2) : '—';
+    final minutes = _alerteCourseMinutesApproche;
 
-    unawaited(KeleganceAudioAlertes.playInstantRequestSound());
-
-    await showDialog<void>(
-      context: context,
-      barrierDismissible: false,
-      builder: (ctx) => PopScope(
-        canPop: false,
-        child: AlertDialog(
-          backgroundColor: KeleganceThemePremium.fond,
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(KeleganceConfig.rayonBoutonPremium + 6),
-            side: BorderSide(color: KeleganceThemePremium.or.withOpacity(0.55), width: 0.9),
-          ),
-          contentPadding: const EdgeInsets.fromLTRB(24, 28, 24, 12),
-          content: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              Text(
-                'APPROCHE · $minutesApproche MIN',
-                textAlign: TextAlign.center,
-                style: KeleganceThemePremium.titreAlerte(size: 22),
-              ),
-              const SizedBox(height: 22),
-              Text(
-                'DE · $villeDepart',
-                textAlign: TextAlign.center,
-                style: KeleganceThemePremium.titreAlerte(size: 17).copyWith(color: KeleganceThemePremium.texteDiscret),
-              ),
-              const SizedBox(height: 14),
-              Text(
-                'VERS · $destinationMacro',
-                textAlign: TextAlign.center,
-                style: KeleganceThemePremium.titreAlerte(size: 17).copyWith(
-                  color: KeleganceThemePremium.textePrincipal,
-                  fontWeight: FontWeight.w400,
+    return Positioned.fill(
+      child: Material(
+        color: Colors.black.withOpacity(0.72),
+        child: SafeArea(
+          child: Center(
+            child: SingleChildScrollView(
+              padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
+              child: Container(
+                constraints: const BoxConstraints(maxWidth: 420),
+                decoration: BoxDecoration(
+                  color: KeleganceThemePremium.fond,
+                  borderRadius: BorderRadius.circular(KeleganceConfig.rayonBoutonPremium + 6),
+                  border: Border.all(color: KeleganceThemePremium.or.withOpacity(0.55), width: 0.9),
+                ),
+                padding: const EdgeInsets.fromLTRB(24, 28, 24, 20),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    if (_alerteCourseCalculEnCours || minutes == null)
+                      const Padding(
+                        padding: EdgeInsets.symmetric(vertical: 24),
+                        child: Center(
+                          child: SizedBox(
+                            width: 28,
+                            height: 28,
+                            child: CircularProgressIndicator(strokeWidth: 2.5, color: KeleganceThemePremium.or),
+                          ),
+                        ),
+                      )
+                    else ...[
+                      Text(
+                        'APPROCHE · $minutes MIN',
+                        textAlign: TextAlign.center,
+                        style: KeleganceThemePremium.titreAlerte(size: 22),
+                      ),
+                      const SizedBox(height: 22),
+                      Text(
+                        'DE · $villeDepart',
+                        textAlign: TextAlign.center,
+                        style: KeleganceThemePremium.titreAlerte(size: 17).copyWith(color: KeleganceThemePremium.texteDiscret),
+                      ),
+                      const SizedBox(height: 14),
+                      Text(
+                        'VERS · $destinationMacro',
+                        textAlign: TextAlign.center,
+                        style: KeleganceThemePremium.titreAlerte(size: 17).copyWith(
+                          color: KeleganceThemePremium.textePrincipal,
+                          fontWeight: FontWeight.w400,
+                        ),
+                      ),
+                      const SizedBox(height: 22),
+                      KeleganceThemePremium.bandeauNetChauffeur(
+                        netText: netText,
+                        prixText: prixText,
+                        fraisText: ventilation != null ? fraisText : null,
+                      ),
+                    ],
+                    const SizedBox(height: 20),
+                    SizedBox(
+                      width: double.infinity,
+                      height: 52,
+                      child: ElevatedButton(
+                        style: KeleganceThemePremium.boutonRefus(),
+                        onPressed: _alerteCourseCalculEnCours ? null : _refuserCourseDepuisAlerte,
+                        child: const Text('REFUSER', style: TextStyle(fontSize: 13, fontWeight: FontWeight.w500, letterSpacing: 1.6)),
+                      ),
+                    ),
+                    const SizedBox(height: 10),
+                    SizedBox(
+                      width: double.infinity,
+                      height: 52,
+                      child: ElevatedButton(
+                        style: KeleganceThemePremium.boutonAccept(),
+                        onPressed: _alerteCourseCalculEnCours ? null : _accepterCourseDepuisAlerteOverlay,
+                        child: const Text('ACCEPTER', style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600, letterSpacing: 1.8)),
+                      ),
+                    ),
+                  ],
                 ),
               ),
-              const SizedBox(height: 22),
-              KeleganceThemePremium.bandeauNetChauffeur(
-                netText: netText,
-                prixText: prixText,
-                fraisText: ventilation != null ? fraisText : null,
-              ),
-            ],
+            ),
           ),
-          actionsPadding: const EdgeInsets.fromLTRB(16, 8, 16, 20),
-          actions: [
-            SizedBox(
-              width: double.infinity,
-              height: 52,
-              child: ElevatedButton(
-                style: KeleganceThemePremium.boutonRefus(),
-                onPressed: () {
-                  unawaited(KeleganceAudioAlertes.stopInstantRequestSound());
-                  if (!simulation) {
-                    unawaited(FirebaseFirestore.instance.collection('missions').doc(docId).update({'statut': 'ANNULÉ'}));
-                  }
-                  Navigator.pop(ctx);
-                },
-                child: const Text('REFUSER', style: TextStyle(fontSize: 13, fontWeight: FontWeight.w500, letterSpacing: 1.6)),
-              ),
-            ),
-            const SizedBox(height: 10),
-            SizedBox(
-              width: double.infinity,
-              height: 52,
-              child: ElevatedButton(
-                style: KeleganceThemePremium.boutonAccept(),
-                onPressed: () {
-                  Navigator.pop(ctx);
-                  unawaited(KeleganceAudioAlertes.stopInstantRequestSound());
-                  _accepterCourseDepuisAlerte(docId, data, simulation: simulation);
-                },
-                child: const Text('ACCEPTER', style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600, letterSpacing: 1.8)),
-              ),
-            ),
-          ],
         ),
       ),
     );
-
-    if (mounted) {
-      setState(() => _alerteCourseVisible = false);
-    } else {
-      _alerteCourseVisible = false;
-    }
   }
 
   void _simulerVraieAlerteCourse() {
+    if (!_peutAfficherAlerteCourse()) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Une alerte est déjà affichée.'),
+          backgroundColor: Colors.orange,
+        ),
+      );
+      return;
+    }
     _delaiSimulationAlerte?.cancel();
     ScaffoldMessenger.of(context).showSnackBar(
       const SnackBar(
@@ -5354,7 +6088,7 @@ class _PageConsoleState extends State<PageConsole> with WidgetsBindingObserver {
       ),
     );
     _delaiSimulationAlerte = Timer(const Duration(seconds: 5), () {
-      if (!mounted) return;
+      if (!_peutAfficherAlerteCourse()) return;
       unawaited(_afficherPopupAlerteCourse(
         docId: 'simulation_kelegance',
         simulation: true,
@@ -5401,6 +6135,7 @@ class _PageConsoleState extends State<PageConsole> with WidgetsBindingObserver {
 
     _currentPosition = pos;
     _currentHeading = heading;
+    _evaluerStatutAutomatique();
     if (carteVisible) {
       setState(() {});
       if (!_carteManipuleeManuellement) {
@@ -5470,15 +6205,6 @@ class _PageConsoleState extends State<PageConsole> with WidgetsBindingObserver {
     unawaited(_fermerOverlayCourse());
   }
 
-  void _demarrerSuiviCaJournalier() {
-    _abonnementCaJournalier?.cancel();
-    _abonnementCaJournalier = FirebaseFirestore.instance.collection('missions').snapshots().listen(
-      (snapshot) => _recalculerCaJournalier(snapshot.docs),
-      onError: (e) {
-        if (kDebugMode) debugPrint('Kelegance CA journalier: $e');
-      },
-    );
-  }
 
   DateTime? _dateMissionVersDateTime(Map<String, dynamic> data) {
     final brut = data['date']?.toString().trim() ?? '';
@@ -5507,9 +6233,21 @@ class _PageConsoleState extends State<PageConsole> with WidgetsBindingObserver {
   }
 
   void _recalculerCaJournalier(List<QueryDocumentSnapshot> docs) {
+    final user = FirebaseAuth.instance.currentUser;
+    final email = user?.email;
+    final uid = user?.uid;
     var total = 0.0;
     for (final doc in docs) {
       final data = doc.data() as Map<String, dynamic>;
+      if (!_accesComplet &&
+          !KeleganceRoles.missionAssigneeAuCollaborateur(
+            data,
+            email: email,
+            nom: _nomProfilChauffeur,
+            uid: uid,
+          )) {
+        continue;
+      }
       final statut = (data['statut']?.toString() ?? '').toUpperCase().replaceAll('É', 'E').trim();
       if (statut != 'TERMINE' && statut != 'TERMINÉ') continue;
       final dateCloture = _dateClotureCourse(data);
@@ -5525,6 +6263,8 @@ class _PageConsoleState extends State<PageConsole> with WidgetsBindingObserver {
     }
   }
 
+  String get _libelleCaBandeau => _accesComplet ? 'CA Jour : ' : 'Mon CA du Jour : ';
+
   String get _caJournalierAffiche => '${_caJournalier.toStringAsFixed(2)} €';
 
   bool _estMissionHistorique(Map<String, dynamic> data) {
@@ -5533,49 +6273,48 @@ class _PageConsoleState extends State<PageConsole> with WidgetsBindingObserver {
   }
 
   Widget _buildBandeauCaCentre() {
-    return SafeArea(
-      bottom: false,
-      child: Align(
-        alignment: Alignment.topCenter,
-        child: Padding(
-          padding: const EdgeInsets.only(top: 6),
-          child: Material(
-            color: Colors.transparent,
-            child: InkWell(
-              onTap: () => setState(() => _showCA = !_showCA),
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 10, 16, 12),
+      child: Center(
+        child: Material(
+          color: _noirProfond.withOpacity(0.72),
+          elevation: 4,
+          borderRadius: BorderRadius.circular(20),
+          child: Container(
+            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
+            decoration: BoxDecoration(
               borderRadius: BorderRadius.circular(20),
-              child: Container(
-                padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 10),
-                decoration: BoxDecoration(
-                  color: _noirProfond.withOpacity(0.72),
-                  borderRadius: BorderRadius.circular(20),
-                  border: Border.all(color: _orKelegance.withOpacity(0.45), width: 0.8),
+              border: Border.all(color: _orKelegance.withOpacity(0.45), width: 0.8),
+            ),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(
+                  _libelleCaBandeau,
+                  style: const TextStyle(color: Colors.white70, fontSize: 14, fontWeight: FontWeight.w300, letterSpacing: 0.4),
                 ),
-                child: Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    const Text(
-                      'CA Jour : ',
-                      style: TextStyle(color: Colors.white70, fontSize: 14, fontWeight: FontWeight.w300, letterSpacing: 0.4),
-                    ),
-                    Text(
-                      _showCA ? _caJournalierAffiche : '•••• €',
-                      style: const TextStyle(
-                        color: _orKelegance,
-                        fontWeight: FontWeight.w500,
-                        fontSize: 20,
-                        letterSpacing: 0.6,
-                      ),
-                    ),
-                    const SizedBox(width: 8),
-                    Icon(
-                      _showCA ? Icons.visibility_off_outlined : Icons.visibility_outlined,
-                      color: Colors.white38,
-                      size: 16,
-                    ),
-                  ],
+                Text(
+                  _showCA ? _caJournalierAffiche : '•••• €',
+                  style: const TextStyle(
+                    color: _orKelegance,
+                    fontWeight: FontWeight.w500,
+                    fontSize: 20,
+                    letterSpacing: 0.6,
+                  ),
                 ),
-              ),
+                const SizedBox(width: 4),
+                IconButton(
+                  tooltip: _showCA ? 'Masquer le CA' : 'Afficher le CA',
+                  padding: EdgeInsets.zero,
+                  constraints: const BoxConstraints(minWidth: 32, minHeight: 32),
+                  onPressed: () => setState(() => _showCA = !_showCA),
+                  icon: Icon(
+                    _showCA ? Icons.visibility_off_outlined : Icons.visibility_outlined,
+                    color: Colors.white54,
+                    size: 18,
+                  ),
+                ),
+              ],
             ),
           ),
         ),
@@ -5605,6 +6344,16 @@ class _PageConsoleState extends State<PageConsole> with WidgetsBindingObserver {
   }
 
   Future<void> _prendreCourse(String docId, Map<String, dynamic> data) async {
+    if (!_accesBrasDroit && !KeleganceRoles.missionAssigneeAuCollaborateur(data)) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          backgroundColor: Colors.orange,
+          content: Text('Cette course ne vous est pas assignée.'),
+        ),
+      );
+      return;
+    }
     if (!_isOnline) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -5629,15 +6378,13 @@ class _PageConsoleState extends State<PageConsole> with WidgetsBindingObserver {
     }
 
     setState(() {
+      _activerVueCourseImmersive();
+      _fermerGuidageInApp();
       _activeCourseId = docId;
       _activeCourseData = {...data, 'statut': 'EN_ROUTE'};
       _currentStep = 'EN_ROUTE';
-      _ecran = _EcranChauffeur.accueil;
       _telephoneClientCourse = KeleganceCommunication.extraireNumeroMission(data);
     });
-
-    final depart = KeleganceNavigation.resoudreAdresseCourse(data, versArrivee: false);
-    _lancerGpsPrioritaire(depart);
 
     unawaited(_mettreAJourStatutCourse(
       docId,
@@ -5653,24 +6400,31 @@ class _PageConsoleState extends State<PageConsole> with WidgetsBindingObserver {
         }
       }));
     }
+
+    if (_gpsAutomatique) {
+      _lancerNavigationAutomatiqueCourse();
+    }
+    unawaited(_preparerGeocodageCourse(data));
   }
 
   Future<void> _clientABord() async {
     if (_activeCourseId == null || _activeCourseData == null) return;
-    final destination = KeleganceNavigation.resoudreAdresseCourse(_activeCourseData!, versArrivee: true);
 
     setState(() {
+      _activerVueCourseImmersive();
       _currentStep = 'EN_COURSE';
       _activeCourseData = {..._activeCourseData!, 'statut': 'EN COURSE'};
     });
-
-    _lancerGpsPrioritaire(destination);
 
     unawaited(_mettreAJourStatutCourse(
       _activeCourseId!,
       'EN COURSE',
       messageClient: 'Votre chauffeur est en route vers votre destination.',
     ));
+
+    if (_gpsAutomatique) {
+      _lancerNavigationAutomatiqueCourse();
+    }
   }
 
   Future<void> _terminerCourse() async {
@@ -5679,6 +6433,7 @@ class _PageConsoleState extends State<PageConsole> with WidgetsBindingObserver {
     final data = Map<String, dynamic>.from(_activeCourseData!);
 
     await _fermerOverlayCourse();
+    _fermerGuidageInApp();
 
     // Débit Stripe avant clôture — seul point bloquant légitime
     if (KeleganceStripePaiement.estStripe(data)) {
@@ -5705,6 +6460,9 @@ class _PageConsoleState extends State<PageConsole> with WidgetsBindingObserver {
         _activeCourseId = null;
         _activeCourseData = null;
         _telephoneClientCourse = null;
+        _latLngPriseEnCharge = null;
+        _latLngDestination = null;
+        _statutAutoSurPlaceDeclenche = false;
         _ecran = _EcranChauffeur.accueil;
       });
       ScaffoldMessenger.of(context).showSnackBar(
@@ -5720,7 +6478,7 @@ class _PageConsoleState extends State<PageConsole> with WidgetsBindingObserver {
   }
 
   Future<void> _ouvrirGoogleMapsNavigation(String adresse) async {
-    _lancerGpsPrioritaire(adresse);
+    _lancerGoogleMapsCourse(adresse);
   }
 
   Future<void> _ouvrirWazeNavigation(String adresse) async {
@@ -5733,13 +6491,31 @@ class _PageConsoleState extends State<PageConsole> with WidgetsBindingObserver {
     await launchUrl(Uri.parse(uri), mode: LaunchMode.externalApplication);
   }
 
-  bool get _courseImmersive =>
-      _ecran == _EcranChauffeur.accueil && _currentStep != 'AUCUNE' && _activeCourseData != null;
+  bool get _courseImmersive => _courseChauffeurActive;
 
   bool get _carteAccueilVisible => _ecran == _EcranChauffeur.accueil;
 
   void _naviguerVersEcran(_EcranChauffeur ecran) {
+    if (ecran == _EcranChauffeur.revenusFactures && !_accesComplet) {
+      keleganceAfficherRefusPermission(
+        context,
+        detail: 'Revenus & Factures — accès réservé aux Bras Droit.',
+      );
+      return;
+    }
+    if (ecran == _EcranChauffeur.bonsRetour && !_accesComplet) {
+      keleganceAfficherRefusPermission(
+        context,
+        detail: 'Bons de commande retour — accès réservé aux Bras Droit.',
+      );
+      return;
+    }
     setState(() => _ecran = ecran);
+    if (ecran == _EcranChauffeur.accueil &&
+        _guidageInAppOuvert &&
+        _polyligneGuidage.length > 1) {
+      unawaited(_ajusterCameraSurItineraire(_polyligneGuidage));
+    }
   }
 
   void _retourAccueilChauffeur() {
@@ -5747,12 +6523,45 @@ class _PageConsoleState extends State<PageConsole> with WidgetsBindingObserver {
     setState(() => _ecran = _EcranChauffeur.accueil);
   }
 
+  void _ouvrirPreferencesNotifications() {
+    Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (_) => KeleganceEcranPreferencesNotifications(
+          couleurAccent: _orKelegance,
+          fond: _noirProfond,
+        ),
+      ),
+    );
+  }
+
+  /// Masque l'agenda / réservations — affiche uniquement la carte pendant une course active.
+  void _activerVueCourseImmersive() {
+    if (_ecran == _EcranChauffeur.accueil) return;
+    _ecran = _EcranChauffeur.accueil;
+  }
+
   static const Color _orKelegance = Color(0xFFD4AF37);
   static const Color _noirProfond = Color(0xFF000000);
   static const double _zoomCarteChauffeur = 18.5;
   static const double _tiltCarteChauffeur = 58.0;
   static const double _paddingCarteBandeauCourse = 220.0;
+  /// Padding bas carte — repousse le bandeau Google sous le panneau inférieur.
+  static const double _paddingMasquageBandeauGoogle = 42.0;
+  static const double _hauteurBarreNavChauffeur = 64.0;
   static const double _seuilDecalageRecentrageMetres = 28.0;
+
+  double _paddingBasCarteGoogleMap() {
+    if (_courseChauffeurActive) return _paddingCarteBandeauCourse;
+    var padding = _paddingMasquageBandeauGoogle;
+    if (!_courseImmersive) padding += _hauteurBarreNavChauffeur;
+    return padding;
+  }
+
+  double _offsetBasPanneauGuidage() {
+    if (_courseChauffeurActive) return _paddingCarteBandeauCourse;
+    if (!_courseImmersive) return _hauteurBarreNavChauffeur + 8;
+    return 8;
+  }
 
   double _distanceCarteChauffeurMetres(LatLng mapCenter) {
     return Geolocator.distanceBetween(
@@ -5780,51 +6589,63 @@ class _PageConsoleState extends State<PageConsole> with WidgetsBindingObserver {
   }
 
   Widget _buildCarte3DFond() {
-    // v4.1.0 — Bouton recentrage visible uniquement si le centre carte ≠ position chauffeur.
     return LayoutBuilder(
       builder: (context, constraints) {
-        return SizedBox(
-          width: constraints.maxWidth,
-          height: constraints.maxHeight,
-          child: GoogleMap(
-            initialCameraPosition: CameraPosition(
-              target: _currentPosition,
-              zoom: _zoomCarteChauffeur,
-              tilt: _tiltCarteChauffeur,
-              bearing: _currentHeading,
+        return ClipRect(
+          child: Align(
+            alignment: Alignment.topCenter,
+            heightFactor: 1.0,
+            child: SizedBox(
+              width: constraints.maxWidth,
+              height: constraints.maxHeight + _paddingMasquageBandeauGoogle,
+              child: GoogleMap(
+                key: const ValueKey('kelegance_carte_chauffeur'),
+                initialCameraPosition: CameraPosition(
+                  target: _currentPosition,
+                  zoom: _zoomCarteChauffeur,
+                  tilt: _tiltCarteChauffeur,
+                  bearing: _currentHeading,
+                ),
+                padding: EdgeInsets.only(bottom: _paddingBasCarteGoogleMap()),
+                markers: _markersGuidage,
+                polylines: _polyligneGuidage.isEmpty
+                    ? const {}
+                    : {
+                        Polyline(
+                          polylineId: const PolylineId('guidage_kelegance'),
+                          points: _polyligneGuidage,
+                          color: _orKelegance,
+                          width: 5,
+                        ),
+                      },
+                circles: const {},
+                mapType: MapType.normal,
+                style: KeleganceCarteStyle.sombreOr,
+                buildingsEnabled: true,
+                myLocationEnabled: false,
+                myLocationButtonEnabled: false,
+                zoomControlsEnabled: false,
+                mapToolbarEnabled: false,
+                compassEnabled: false,
+                rotateGesturesEnabled: true,
+                tiltGesturesEnabled: true,
+                scrollGesturesEnabled: true,
+                zoomGesturesEnabled: true,
+                onCameraMove: (position) {
+                  _dernierCentreCarte = position.target;
+                  _majVisibiliteBoutonRecentrage(position.target);
+                },
+                onCameraIdle: () {
+                  final centre = _dernierCentreCarte;
+                  if (centre != null) {
+                    _majVisibiliteBoutonRecentrage(centre);
+                  }
+                },
+                onMapCreated: (controller) {
+                  _mapController = controller;
+                },
+              ),
             ),
-            padding: _courseChauffeurActive
-                ? const EdgeInsets.only(bottom: _paddingCarteBandeauCourse)
-                : EdgeInsets.zero,
-            markers: const {},
-            polylines: const {},
-            circles: const {},
-            mapType: MapType.normal,
-            style: KeleganceCarteStyle.sombreOr,
-            buildingsEnabled: true,
-            myLocationEnabled: false,
-            myLocationButtonEnabled: false,
-            zoomControlsEnabled: false,
-            mapToolbarEnabled: false,
-            compassEnabled: false,
-            rotateGesturesEnabled: true,
-            tiltGesturesEnabled: true,
-            scrollGesturesEnabled: true,
-            zoomGesturesEnabled: true,
-            onCameraMove: (position) {
-              _dernierCentreCarte = position.target;
-              _majVisibiliteBoutonRecentrage(position.target);
-            },
-            onCameraIdle: () {
-              final centre = _dernierCentreCarte;
-              if (centre != null) {
-                _majVisibiliteBoutonRecentrage(centre);
-              }
-            },
-            onMapCreated: (controller) {
-              _mapController = controller;
-              controller.setMapStyle(KeleganceCarteStyle.sombreOr);
-            },
           ),
         );
       },
@@ -5861,7 +6682,7 @@ class _PageConsoleState extends State<PageConsole> with WidgetsBindingObserver {
   Widget _buildBoutonRecentrerCarte() {
     if (!_showRecenterButton) return const SizedBox.shrink();
 
-    final bas = _courseChauffeurActive ? _paddingCarteBandeauCourse + 16 : 88.0;
+    final bas = _paddingBasCarteGoogleMap() + 16;
     return Positioned(
       right: 16,
       bottom: bas,
@@ -5973,6 +6794,18 @@ class _PageConsoleState extends State<PageConsole> with WidgetsBindingObserver {
                 child: ListView(
                   padding: const EdgeInsets.symmetric(vertical: 6),
                   children: [
+                    if (_accesComplet) ...[
+                      const KelegancePresenceEquipe(compact: true),
+                      Divider(height: 24, indent: 18, endIndent: 18, color: _orKelegance.withOpacity(0.2)),
+                      _drawerLienDirect(
+                        icone: Icons.group_add_outlined,
+                        titre: 'Équipe — inviter un chauffeur',
+                        onTap: () => Navigator.push(
+                          context,
+                          MaterialPageRoute(builder: (_) => const KelegancePageInvitationEquipe()),
+                        ),
+                      ),
+                    ],
                     _drawerLienDirect(
                       icone: Icons.assignment_outlined,
                       titre: 'Suivi & Historique',
@@ -5988,6 +6821,18 @@ class _PageConsoleState extends State<PageConsole> with WidgetsBindingObserver {
                       titre: 'Mes revenus Hebdo et mensuels',
                       onTap: () => _naviguerVersEcran(_EcranChauffeur.revenus),
                     ),
+                    if (_accesComplet)
+                      _drawerLienDirect(
+                        icone: Icons.assignment_return_outlined,
+                        titre: 'Bons de commande retour',
+                        onTap: () => _naviguerVersEcran(_EcranChauffeur.bonsRetour),
+                      ),
+                    if (_accesComplet)
+                      _drawerLienDirect(
+                        icone: Icons.receipt_long_outlined,
+                        titre: 'Revenus & Factures',
+                        onTap: () => _naviguerVersEcran(_EcranChauffeur.revenusFactures),
+                      ),
                     _drawerLienDirect(
                       icone: Icons.folder_special_outlined,
                       titre: 'Documents obligatoires chauffeur et conducteur',
@@ -6003,12 +6848,14 @@ class _PageConsoleState extends State<PageConsole> with WidgetsBindingObserver {
                       titre: 'Aide',
                       onTap: () => keleganceAfficherAideSupport(context, chauffeur: true),
                     ),
-                    const Divider(height: 28, indent: 18, endIndent: 18, color: Colors.orange),
-                    _drawerLienDirect(
-                      icone: Icons.rocket_launch_outlined,
-                      titre: '🚀 Simuler une Vraie Alerte',
-                      onTap: _simulerVraieAlerteCourse,
-                    ),
+                    if (_accesComplet) ...[
+                      const Divider(height: 28, indent: 18, endIndent: 18, color: Colors.orange),
+                      _drawerLienDirect(
+                        icone: Icons.rocket_launch_outlined,
+                        titre: '🚀 Simuler une Vraie Alerte',
+                        onTap: _simulerVraieAlerteCourse,
+                      ),
+                    ],
                   ],
                 ),
               ),
@@ -6200,39 +7047,186 @@ class _PageConsoleState extends State<PageConsole> with WidgetsBindingObserver {
     );
   }
 
+  Widget _buildBoutonsGuidageItineraire({required bool approche, required bool enCourse}) {
+    return Row(
+      children: [
+        if (approche)
+          Expanded(
+            child: _boutonGuidageItineraire(
+              label: 'EN DIRECTION',
+              actif: _guidageInAppOuvert && !_guidageVersDestination,
+              onPressed: () => _ouvrirGuidageInApp(versDestination: false),
+            ),
+          ),
+        if (approche && enCourse) const SizedBox(width: 10),
+        if (enCourse)
+          Expanded(
+            child: _boutonGuidageItineraire(
+              label: 'EN ROUTE',
+              actif: _guidageInAppOuvert && _guidageVersDestination,
+              onPressed: () => _ouvrirGuidageInApp(versDestination: true),
+            ),
+          ),
+      ],
+    );
+  }
+
+  Widget _boutonGuidageItineraire({
+    required String label,
+    required bool actif,
+    required VoidCallback onPressed,
+  }) {
+    return SizedBox(
+      height: 36,
+      child: OutlinedButton(
+        style: OutlinedButton.styleFrom(
+          side: BorderSide(
+            color: actif ? KeleganceThemePremium.or : KeleganceThemePremium.or.withOpacity(0.45),
+            width: actif ? 1.2 : 0.8,
+          ),
+          foregroundColor: actif ? KeleganceConfig.noirProfond : KeleganceThemePremium.or,
+          backgroundColor: actif ? KeleganceThemePremium.or : Colors.transparent,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(KeleganceConfig.rayonBoutonPremium),
+          ),
+          padding: EdgeInsets.zero,
+        ),
+        onPressed: onPressed,
+        child: Text(
+          label,
+          style: TextStyle(
+            fontSize: 10,
+            fontWeight: FontWeight.w600,
+            letterSpacing: 1.1,
+            color: actif ? KeleganceConfig.noirProfond : KeleganceThemePremium.or,
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildPanneauGuidageInApp() {
+    final titre = _guidageVersDestination ? 'EN ROUTE · DESTINATION' : 'EN DIRECTION · CLIENT';
+
+    return Positioned(
+      left: 12,
+      right: 12,
+      bottom: _offsetBasPanneauGuidage() + (_courseChauffeurActive ? 8 : 0),
+      child: Material(
+        color: Colors.transparent,
+        child: Container(
+          decoration: BoxDecoration(
+            color: KeleganceThemePremium.fond.withOpacity(0.97),
+            borderRadius: BorderRadius.circular(KeleganceConfig.rayonBoutonPremium + 2),
+            border: Border.all(color: KeleganceThemePremium.or.withOpacity(0.55), width: 0.9),
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withOpacity(0.45),
+                blurRadius: 16,
+                offset: const Offset(0, -4),
+              ),
+            ],
+          ),
+          padding: const EdgeInsets.fromLTRB(16, 14, 12, 12),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Row(
+                children: [
+                  Icon(
+                    _guidageVersDestination ? Icons.route_rounded : Icons.near_me_rounded,
+                    color: KeleganceThemePremium.or,
+                    size: 18,
+                  ),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      titre,
+                      style: KeleganceThemePremium.libelleNet().copyWith(fontSize: 10, letterSpacing: 1.4),
+                    ),
+                  ),
+                  IconButton(
+                    visualDensity: VisualDensity.compact,
+                    padding: EdgeInsets.zero,
+                    constraints: const BoxConstraints(minWidth: 32, minHeight: 32),
+                    tooltip: 'Fermer l\'itinéraire',
+                    onPressed: _fermerGuidageInApp,
+                    icon: Icon(Icons.close_rounded, color: Colors.white.withOpacity(0.65), size: 20),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 8),
+              Text(
+                _guidageAdresseCible,
+                style: KeleganceThemePremium.titreAlerte(size: 12).copyWith(
+                  color: KeleganceThemePremium.textePrincipal,
+                  fontWeight: FontWeight.w300,
+                  height: 1.35,
+                ),
+              ),
+              const SizedBox(height: 10),
+              if (_guidageChargement)
+                const Row(
+                  children: [
+                    SizedBox(
+                      width: 16,
+                      height: 16,
+                      child: CircularProgressIndicator(strokeWidth: 2, color: KeleganceThemePremium.or),
+                    ),
+                    SizedBox(width: 10),
+                    Text('Calcul de l\'itinéraire…', style: TextStyle(color: Colors.white54, fontSize: 11)),
+                  ],
+                )
+              else if (_guidageResume.isNotEmpty)
+                Text(
+                  _guidageResume,
+                  style: const TextStyle(color: KeleganceThemePremium.or, fontSize: 12, fontWeight: FontWeight.w500),
+                ),
+              if (_ecran != _EcranChauffeur.accueil) ...[
+                const SizedBox(height: 8),
+                Text(
+                  'Tracé visible sur l\'onglet Accueil.',
+                  style: TextStyle(color: Colors.white.withOpacity(0.42), fontSize: 9, fontStyle: FontStyle.italic),
+                ),
+              ],
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
   Widget _buildAdresseCourseCliquable({
     required String adresse,
-    required bool relancerGpsActif,
-    required VoidCallback? onTap,
+    required VoidCallback onTap,
   }) {
     final texte = adresse.isNotEmpty ? adresse : 'Adresse non renseignée';
-    final style = KeleganceThemePremium.titreAlerte(size: 12).copyWith(
-      color: relancerGpsActif ? KeleganceThemePremium.or : KeleganceThemePremium.texteDiscret,
-      fontWeight: relancerGpsActif ? FontWeight.w400 : FontWeight.w300,
+    final style = KeleganceThemePremium.titreAlerte(size: 13).copyWith(
+      color: KeleganceThemePremium.or,
+      fontWeight: FontWeight.w400,
       height: 1.35,
-      decoration: relancerGpsActif ? TextDecoration.underline : null,
+      decoration: TextDecoration.underline,
       decorationColor: KeleganceThemePremium.or.withOpacity(0.45),
     );
-
-    if (!relancerGpsActif || onTap == null) {
-      return Text(texte, style: style);
-    }
 
     return Material(
       color: Colors.transparent,
       child: InkWell(
-        onTap: onTap,
+        onTap: adresse.isNotEmpty ? onTap : null,
         borderRadius: BorderRadius.circular(KeleganceConfig.rayonBoutonPremium),
         child: Padding(
-          padding: const EdgeInsets.symmetric(vertical: 4),
+          padding: const EdgeInsets.symmetric(vertical: 6),
           child: Row(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Padding(
-                padding: const EdgeInsets.only(top: 1, right: 8),
-                child: Icon(Icons.navigation_rounded, color: KeleganceThemePremium.or.withOpacity(0.9), size: 17),
+                padding: const EdgeInsets.only(top: 2, right: 10),
+                child: Icon(Icons.navigation_rounded, color: KeleganceThemePremium.or.withOpacity(0.9), size: 20),
               ),
-              Expanded(child: Text(texte, style: style)),
+              Expanded(
+                child: Text(texte, style: style),
+              ),
             ],
           ),
         ),
@@ -6245,6 +7239,7 @@ class _PageConsoleState extends State<PageConsole> with WidgetsBindingObserver {
     final depart = _activeCourseData!['depart']?.toString() ?? '';
     final destination = _activeCourseData!['destination']?.toString() ?? '';
     final enCourse = _currentStep == 'EN_COURSE';
+    final approche = _currentStep == 'EN_ROUTE' || _currentStep == 'SUR_PLACE';
     final adresseCourante = enCourse ? destination : depart;
 
     Widget boutonEtape;
@@ -6307,23 +7302,11 @@ class _PageConsoleState extends State<PageConsole> with WidgetsBindingObserver {
                   ),
                 ),
               if (client.isNotEmpty) const SizedBox(height: 6),
-              _buildAdresseCourseCliquable(
-                adresse: adresseCourante,
-                relancerGpsActif: enCourse,
-                onTap: enCourse ? _relancerGpsDestinationFinale : null,
-              ),
-              if (enCourse) ...[
-                const SizedBox(height: 4),
-                Text(
-                  'Tapotez l\'adresse pour relancer le GPS ($_gpsDefaut)',
-                  style: TextStyle(
-                    color: Colors.white.withOpacity(0.42),
-                    fontSize: 9,
-                    fontStyle: FontStyle.italic,
-                    letterSpacing: 0.2,
-                  ),
+              if (approche || enCourse)
+                _buildAdresseCourseCliquable(
+                  adresse: adresseCourante,
+                  onTap: _declencherGpsExternePourEtapeCourante,
                 ),
-              ],
               const SizedBox(height: 14),
               if (_currentStep == 'EN_ROUTE' || _currentStep == 'SUR_PLACE') ...[
                 _buildBoutonsCommunicationApproche(),
@@ -6337,39 +7320,70 @@ class _PageConsoleState extends State<PageConsole> with WidgetsBindingObserver {
     );
   }
 
-  void _showSOSDialog(BuildContext context) {
-    showDialog(
-      context: context,
-      builder: (c) => AlertDialog(
-        backgroundColor: Colors.grey[900],
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(15)),
-        title: const Row(
-          children: [
-            Icon(Icons.warning, color: Colors.redAccent),
-            SizedBox(width: 10),
-            Text("URGENCE - SOS", style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
-          ],
+  void _fermerSOS() {
+    if (!_sosAffiche) return;
+    setState(() => _sosAffiche = false);
+  }
+
+  void _ouvrirSOSOverlay() {
+    if (_sosAffiche) return;
+    setState(() => _sosAffiche = true);
+  }
+
+  Widget _buildOverlaySOS() {
+    return Positioned.fill(
+      child: Material(
+        color: Colors.black.withOpacity(0.78),
+        child: SafeArea(
+          child: Center(
+            child: Container(
+              margin: const EdgeInsets.symmetric(horizontal: 22),
+              constraints: const BoxConstraints(maxWidth: 400),
+              decoration: BoxDecoration(
+                color: Colors.grey[900],
+                borderRadius: BorderRadius.circular(15),
+              ),
+              padding: const EdgeInsets.fromLTRB(20, 20, 20, 16),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  const Row(
+                    children: [
+                      Icon(Icons.warning, color: Colors.redAccent),
+                      SizedBox(width: 10),
+                      Text(
+                        'URGENCE - SOS',
+                        style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 14),
+                  const Text(
+                    'Sélectionnez le service d\'urgence à contacter immédiatement :',
+                    style: TextStyle(color: Colors.white70),
+                  ),
+                  const SizedBox(height: 16),
+                  _buildSOSButton('SAMU (15)', Colors.red, _fermerSOS),
+                  const SizedBox(height: 8),
+                  _buildSOSButton('POLICE (17)', Colors.blue, _fermerSOS),
+                  const SizedBox(height: 8),
+                  _buildSOSButton('POMPIERS (18)', Colors.orange, _fermerSOS),
+                  const SizedBox(height: 8),
+                  TextButton(
+                    onPressed: _fermerSOS,
+                    child: const Text('Annuler', style: TextStyle(color: Colors.white54)),
+                  ),
+                ],
+              ),
+            ),
+          ),
         ),
-        content: const Text("Sélectionnez le service d'urgence à contacter immédiatement :", style: TextStyle(color: Colors.white70)),
-        actionsAlignment: MainAxisAlignment.center,
-        actions: [
-          Column(
-            children: [
-              _buildSOSButton("SAMU (15)", Colors.red, () => Navigator.pop(c)),
-              const SizedBox(height: 8),
-              _buildSOSButton("POLICE (17)", Colors.blue, () => Navigator.pop(c)),
-              const SizedBox(height: 8),
-              _buildSOSButton("POMPIERS (18)", Colors.orange, () => Navigator.pop(c)),
-              const SizedBox(height: 8),
-              TextButton(
-                onPressed: () => Navigator.pop(c),
-                child: const Text("Annuler", style: TextStyle(color: Colors.white54)),
-              )
-            ],
-          )
-        ],
       ),
     );
+  }
+
+  void _showSOSDialog(BuildContext context) {
+    _ouvrirSOSOverlay();
   }
 
   Widget _buildSOSButton(String label, Color color, VoidCallback onPressed) {
@@ -6384,6 +7398,15 @@ class _PageConsoleState extends State<PageConsole> with WidgetsBindingObserver {
   }
 
   void _showReglementaireModal(BuildContext context, Map<String, dynamic> data, {String? docId}) {
+    if (_modaleConsoleBloquante) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          backgroundColor: Colors.orange,
+          content: Text('Fermez l\'alerte ou le SOS avant d\'ouvrir le bon de commande.'),
+        ),
+      );
+      return;
+    }
     final dateText = data['date'] ?? 'Date inconnue';
     final heureText = data['heure'] ?? '';
     final depart = data['depart'] ?? 'Non spécifié';
@@ -6397,7 +7420,7 @@ class _PageConsoleState extends State<PageConsole> with WidgetsBindingObserver {
       context: context,
       builder: (dialogContext) {
         return AlertDialog(
-          backgroundColor: Colors.grey[950],
+          backgroundColor: const Color(0xFF0A0A0A),
           shape: RoundedRectangleBorder(
             borderRadius: BorderRadius.circular(15),
             side: const BorderSide(color: Colors.amber, width: 1),
@@ -6644,7 +7667,27 @@ class _PageConsoleState extends State<PageConsole> with WidgetsBindingObserver {
               ],
             ),
             const SizedBox(height: 14),
-            Text(itineraire, style: const TextStyle(color: Colors.white, fontSize: 13, height: 1.35, fontWeight: FontWeight.w400)),
+            GestureDetector(
+              onTap: () => MissionDetailsScreen.ouvrir(
+                context,
+                docId: docId,
+                data: data,
+                couleurAccent: _orKelegance,
+                fond: _noirProfond,
+                onDemarrerCourse: () => _prendreCourse(docId, data),
+              ),
+              child: Row(
+                children: [
+                  Expanded(
+                    child: Text(
+                      itineraire,
+                      style: const TextStyle(color: Colors.white, fontSize: 13, height: 1.35, fontWeight: FontWeight.w400),
+                    ),
+                  ),
+                  Icon(Icons.chevron_right_rounded, color: _orKelegance.withOpacity(0.7), size: 22),
+                ],
+              ),
+            ),
             if (data['note']?.toString().trim().isNotEmpty == true) ...[
               const SizedBox(height: 4),
               Text(
@@ -6668,6 +7711,7 @@ class _PageConsoleState extends State<PageConsole> with WidgetsBindingObserver {
                     docId: docId,
                     data: data,
                     bloque: courseVerrouillee,
+                    accesComplet: _accesComplet,
                     fontSize: 10,
                   ),
                   TextButton.icon(
@@ -6770,6 +7814,10 @@ class _PageConsoleState extends State<PageConsole> with WidgetsBindingObserver {
         return 'Mon Profil';
       case _EcranChauffeur.parametres:
         return "Paramètres";
+      case _EcranChauffeur.revenusFactures:
+        return 'Revenus & Factures';
+      case _EcranChauffeur.bonsRetour:
+        return 'Bons de commande retour';
     }
   }
 
@@ -6787,12 +7835,21 @@ class _PageConsoleState extends State<PageConsole> with WidgetsBindingObserver {
         return 4;
       case _EcranChauffeur.parametres:
         return 5;
+      case _EcranChauffeur.revenusFactures:
+        return 6;
+      case _EcranChauffeur.bonsRetour:
+        return 7;
     }
+  }
+
+  int _indexCorpsChauffeur() {
+    if (_courseChauffeurActive) return 0;
+    return _indexEcranChauffeur();
   }
 
   Widget _buildCorpsChauffeur() {
     return IndexedStack(
-      index: _indexEcranChauffeur(),
+      index: _indexCorpsChauffeur(),
       sizing: StackFit.expand,
       children: [
         _buildHomeView(),
@@ -6801,7 +7858,338 @@ class _PageConsoleState extends State<PageConsole> with WidgetsBindingObserver {
         _buildChauffeurConsoleAgenda(),
         _buildEcranProfilChauffeur(),
         _buildEcranParametresApp(),
+        _buildEcranRevenusFacturesBrasDroit(),
+        _buildEcranBonsRetourBrasDroit(),
       ],
+    );
+  }
+
+  Widget _buildEcranBonsRetourBrasDroit() {
+    if (!_accesComplet) {
+      return Center(
+        child: Text(
+          'Accès réservé aux Bras Droit.',
+          style: TextStyle(color: Colors.white.withOpacity(0.55), fontSize: 14),
+        ),
+      );
+    }
+
+    return ColoredBox(
+      color: _noirProfond,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 12, 16, 0),
+            child: SizedBox(
+              height: 44,
+              child: FilledButton.icon(
+                style: FilledButton.styleFrom(
+                  backgroundColor: _orKelegance,
+                  foregroundColor: Colors.black,
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                ),
+                onPressed: () => KeleganceBonCommandeForm.afficher(context),
+                icon: const Icon(Icons.add, size: 20),
+                label: const Text('+ Bon de commande retour', style: TextStyle(fontWeight: FontWeight.w700)),
+              ),
+            ),
+          ),
+          Expanded(
+            child: ListView(
+              padding: const EdgeInsets.fromLTRB(20, 16, 20, 100),
+              children: const [
+                KeleganceListeBonsCommandeRetour(
+                  modeExpert: true,
+                  titre: 'HISTORIQUE GLOBAL — BONS DE COMMANDE RETOUR',
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildEcranRevenusFacturesBrasDroit() {
+    if (!_accesComplet) {
+      return Center(
+        child: Text(
+          'Accès réservé aux Bras Droit.',
+          style: TextStyle(color: Colors.white.withOpacity(0.55), fontSize: 14),
+        ),
+      );
+    }
+
+    return KeleganceFacturesStreamBuilder(
+      builder: (context, snapshot, live) {
+        if (snapshot == null) {
+          return const Center(child: CircularProgressIndicator(color: Colors.amber));
+        }
+
+        if (!snapshot.accesComplet) {
+          return Center(
+            child: Padding(
+              padding: const EdgeInsets.all(24),
+              child: Text(
+                'Flux expert indisponible — reconnectez-vous avec un profil Bras Droit.',
+                textAlign: TextAlign.center,
+                style: TextStyle(color: Colors.white.withOpacity(0.55), fontSize: 13),
+              ),
+            ),
+          );
+        }
+
+        final docs = KeleganceFacturesService.trierParDateRecente(snapshot.docs);
+        final totaux = KeleganceFacturesService.calculerTotauxDashboard(docs);
+
+        return ColoredBox(
+          color: _noirProfond,
+          child: ListView(
+            padding: const EdgeInsets.fromLTRB(20, 12, 20, 100),
+            children: [
+              if (live)
+                Padding(
+                  padding: const EdgeInsets.only(bottom: 10),
+                  child: Text(
+                    'Activité financière synchronisée',
+                    textAlign: TextAlign.center,
+                    style: TextStyle(color: Colors.greenAccent.withOpacity(0.8), fontSize: 10, letterSpacing: 0.5),
+                  ),
+                ),
+              Text(
+                'VUE EXPERT — TOUTE L\'ACTIVITÉ',
+                style: TextStyle(
+                  color: _orKelegance.withOpacity(0.9),
+                  fontSize: 11,
+                  fontWeight: FontWeight.w500,
+                  letterSpacing: 1.1,
+                ),
+              ),
+              const SizedBox(height: 14),
+              _buildBandeauTotauxFacturesBrasDroit(
+                totalPaye: totaux.totalPaye,
+                totalEnAttente: totaux.totalEnAttente,
+                nbPayees: totaux.nbPayees,
+                nbEnAttente: totaux.nbEnAttente,
+                nbTotal: docs.length,
+              ),
+              const SizedBox(height: 22),
+              Text(
+                '${docs.length} facture(s)',
+                style: TextStyle(color: Colors.white.withOpacity(0.5), fontSize: 12),
+              ),
+              const SizedBox(height: 12),
+              if (docs.isEmpty)
+                Container(
+                  padding: const EdgeInsets.all(22),
+                  decoration: BoxDecoration(
+                    color: Colors.white.withOpacity(0.04),
+                    borderRadius: BorderRadius.circular(12),
+                    border: Border.all(color: _orKelegance.withOpacity(0.22)),
+                  ),
+                  child: const Text(
+                    'Aucune facture enregistrée pour le moment.',
+                    textAlign: TextAlign.center,
+                    style: TextStyle(color: Colors.white54, fontStyle: FontStyle.italic),
+                  ),
+                )
+              else
+                ...docs.map((doc) {
+                  final data = doc.data() as Map<String, dynamic>;
+                  return _buildCarteFactureBrasDroit(
+                    data: data,
+                    miseAJourLive: live,
+                  );
+                }),
+            ],
+          ),
+        );
+      },
+    );
+  }
+
+  Widget _buildBandeauTotauxFacturesBrasDroit({
+    required double totalPaye,
+    required double totalEnAttente,
+    required int nbPayees,
+    required int nbEnAttente,
+    required int nbTotal,
+  }) {
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          colors: [
+            _orKelegance.withOpacity(0.14),
+            Colors.white.withOpacity(0.04),
+          ],
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+        ),
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: _orKelegance.withOpacity(0.35)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Row(
+            children: [
+              Expanded(
+                child: _buildTuileTotalFacture(
+                  label: 'Total payé',
+                  montant: totalPaye,
+                  sousTitre: '$nbPayees facture(s)',
+                  couleur: Colors.greenAccent,
+                ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: _buildTuileTotalFacture(
+                  label: 'En attente',
+                  montant: totalEnAttente,
+                  sousTitre: '$nbEnAttente facture(s)',
+                  couleur: Colors.orangeAccent,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 12),
+          Text(
+            'Encours global : ${(totalPaye + totalEnAttente).toStringAsFixed(2)} € · $nbTotal document(s)',
+            textAlign: TextAlign.center,
+            style: TextStyle(color: Colors.white.withOpacity(0.45), fontSize: 10, letterSpacing: 0.3),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildTuileTotalFacture({
+    required String label,
+    required double montant,
+    required String sousTitre,
+    required Color couleur,
+  }) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 14),
+      decoration: BoxDecoration(
+        color: couleur.withOpacity(0.1),
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(color: couleur.withOpacity(0.35)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(label, style: TextStyle(color: couleur.withOpacity(0.9), fontSize: 10, letterSpacing: 0.4)),
+          const SizedBox(height: 6),
+          Text(
+            '${montant.toStringAsFixed(2)} €',
+            style: TextStyle(color: couleur, fontSize: 20, fontWeight: FontWeight.w600, letterSpacing: 0.3),
+          ),
+          const SizedBox(height: 4),
+          Text(sousTitre, style: TextStyle(color: Colors.white.withOpacity(0.45), fontSize: 9)),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildCarteFactureBrasDroit({
+    required Map<String, dynamic> data,
+    bool miseAJourLive = false,
+  }) {
+    final numero = data['numero']?.toString() ?? 'Facture';
+    final client = data['client']?.toString() ?? data['email']?.toString() ?? 'Client';
+    final dateText = data['date']?.toString() ?? '—';
+    final montant = KeleganceFacturesService.parserMontant(data['montant']);
+    final statut = KeleganceFacturesService.presenterStatut(data['statut']?.toString());
+    final lienWeb = data['lienWeb']?.toString();
+
+    return AnimatedContainer(
+      duration: const Duration(milliseconds: 320),
+      margin: const EdgeInsets.only(bottom: 10),
+      decoration: miseAJourLive
+          ? BoxDecoration(
+              borderRadius: BorderRadius.circular(12),
+              boxShadow: [BoxShadow(color: Colors.greenAccent.withOpacity(0.08), blurRadius: 8)],
+            )
+          : null,
+      child: Card(
+        margin: EdgeInsets.zero,
+        color: const Color(0xFF0A0A0A),
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(12),
+          side: BorderSide(color: _orKelegance.withOpacity(0.22)),
+        ),
+        child: ListTile(
+          contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+          leading: const Icon(Icons.receipt_long_outlined, color: Color(0xFFD4AF37)),
+          title: Text(numero, style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w600, fontSize: 14)),
+          subtitle: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const SizedBox(height: 4),
+              Text(client, style: TextStyle(color: Colors.white.withOpacity(0.65), fontSize: 12)),
+              Text(dateText, style: TextStyle(color: Colors.white.withOpacity(0.4), fontSize: 11)),
+              const SizedBox(height: 6),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                decoration: BoxDecoration(
+                  color: statut.couleur.withOpacity(0.15),
+                  borderRadius: BorderRadius.circular(6),
+                ),
+                child: Text(
+                  statut.libelle,
+                  style: TextStyle(color: statut.couleur, fontSize: 10, fontWeight: FontWeight.w600),
+                ),
+              ),
+            ],
+          ),
+          trailing: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            crossAxisAlignment: CrossAxisAlignment.end,
+            children: [
+              Text(
+                '${montant.toStringAsFixed(2)} €',
+                style: const TextStyle(color: _orKelegance, fontWeight: FontWeight.w600, fontSize: 14),
+              ),
+              if (lienWeb != null && lienWeb.isNotEmpty)
+                Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    IconButton(
+                      padding: EdgeInsets.zero,
+                      constraints: const BoxConstraints(minWidth: 32, minHeight: 32),
+                      tooltip: 'Partager',
+                      icon: Icon(Icons.ios_share_rounded, color: _orKelegance.withOpacity(0.85), size: 18),
+                      onPressed: () => unawaited(
+                        KeleganceDocumentsClient.partagerLien(
+                          context,
+                          KeleganceDocumentsClient.depuisFacture(data),
+                        ),
+                      ),
+                    ),
+                    IconButton(
+                      padding: EdgeInsets.zero,
+                      constraints: const BoxConstraints(minWidth: 32, minHeight: 32),
+                      tooltip: 'Envoyer par e-mail',
+                      icon: Icon(Icons.email_outlined, color: _orKelegance.withOpacity(0.85), size: 18),
+                      onPressed: () => unawaited(
+                        KeleganceDocumentsClient.envoyerLienParEmail(
+                          context,
+                          KeleganceDocumentsClient.depuisFacture(data),
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+            ],
+          ),
+          onTap: lienWeb != null && lienWeb.isNotEmpty
+              ? () => unawaited(launchUrl(Uri.parse(lienWeb), mode: LaunchMode.externalApplication))
+              : null,
+        ),
+      ),
     );
   }
 
@@ -6838,9 +8226,9 @@ class _PageConsoleState extends State<PageConsole> with WidgetsBindingObserver {
                       child: const Icon(Icons.person_outline, color: _orKelegance, size: 38),
                     ),
                     const SizedBox(height: 14),
-                    const Text(
-                      'Nicolas',
-                      style: TextStyle(color: Colors.white, fontSize: 22, fontWeight: FontWeight.w500, letterSpacing: 0.6),
+                    Text(
+                      _nomProfilChauffeur,
+                      style: const TextStyle(color: Colors.white, fontSize: 22, fontWeight: FontWeight.w500, letterSpacing: 0.6),
                     ),
                     const SizedBox(height: 6),
                     Text(
@@ -6908,6 +8296,68 @@ class _PageConsoleState extends State<PageConsole> with WidgetsBindingObserver {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
+                    SwitchListTile(
+                      contentPadding: EdgeInsets.zero,
+                      title: const Text(
+                        'Ouverture automatique de la navigation',
+                        style: TextStyle(color: Colors.white, fontSize: 13),
+                      ),
+                      subtitle: Text(
+                        'Lance Google Maps au démarrage de la course (vers le client, puis vers la destination)',
+                        style: TextStyle(color: Colors.white.withOpacity(0.45), fontSize: 10),
+                      ),
+                      value: _gpsAutomatique,
+                      activeColor: _orKelegance,
+                      onChanged: (v) => setState(() => _gpsAutomatique = v),
+                    ),
+                    const Divider(color: Colors.white12, height: 20),
+                    SwitchListTile(
+                      contentPadding: EdgeInsets.zero,
+                      title: const Text('Statut automatique', style: TextStyle(color: Colors.white, fontSize: 13)),
+                      subtitle: Text(
+                        'Passe en « Sur place » quand vous êtes à moins de 180 m du client',
+                        style: TextStyle(color: Colors.white.withOpacity(0.45), fontSize: 10),
+                      ),
+                      value: _statutAutomatique,
+                      activeColor: _orKelegance,
+                      onChanged: (v) => setState(() => _statutAutomatique = v),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 16),
+              Container(
+                decoration: BoxDecoration(
+                  color: const Color(0xFF0D0D0D),
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(color: _orKelegance.withOpacity(0.22)),
+                ),
+                child: ListTile(
+                  contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+                  leading: Icon(Icons.notifications_active_outlined, color: _orKelegance.withOpacity(0.9)),
+                  title: const Text(
+                    'Préférences de notifications',
+                    style: TextStyle(color: Colors.white, fontSize: 13, fontWeight: FontWeight.w500),
+                  ),
+                  subtitle: Text(
+                    'Missions assignées, rappels 1 h avant départ, factures payées',
+                    style: TextStyle(color: Colors.white.withOpacity(0.45), fontSize: 10),
+                  ),
+                  trailing: Icon(Icons.chevron_right_rounded, color: _orKelegance.withOpacity(0.75)),
+                  onTap: _ouvrirPreferencesNotifications,
+                ),
+              ),
+              const SizedBox(height: 16),
+              Container(
+                padding: const EdgeInsets.all(16),
+                decoration: BoxDecoration(
+                  color: const Color(0xFF0D0D0D),
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(color: _orKelegance.withOpacity(0.22)),
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
                     Text('Volume alerte course', style: TextStyle(color: Colors.white.withOpacity(0.7), fontSize: 12)),
                     Slider(
                       value: _volumeAlerte,
@@ -6923,32 +8373,81 @@ class _PageConsoleState extends State<PageConsole> with WidgetsBindingObserver {
                       },
                     ),
                     const SizedBox(height: 16),
-                    Text('GPS par défaut', style: TextStyle(color: Colors.white.withOpacity(0.7), fontSize: 12)),
+                    Text('Application GPS', style: TextStyle(color: Colors.white.withOpacity(0.7), fontSize: 12)),
                     const SizedBox(height: 8),
-                    SegmentedButton<String>(
-                      segments: const [
-                        ButtonSegment(value: 'Google Maps', label: Text('Maps', style: TextStyle(fontSize: 11))),
-                        ButtonSegment(value: 'Waze', label: Text('Waze', style: TextStyle(fontSize: 11))),
+                    Wrap(
+                      spacing: 8,
+                      runSpacing: 8,
+                      children: [
+                        for (final option in [
+                          KeleganceConsolePrefs.gpsGoogleMaps,
+                          KeleganceConsolePrefs.gpsWaze,
+                          if (keleganceEstIOS) KeleganceConsolePrefs.gpsAppleMaps,
+                        ])
+                          ChoiceChip(
+                            label: Text(option, style: const TextStyle(fontSize: 11)),
+                            selected: _gpsDefaut == option,
+                            selectedColor: _orKelegance,
+                            backgroundColor: Colors.white10,
+                            labelStyle: TextStyle(
+                              color: _gpsDefaut == option ? Colors.black : Colors.white70,
+                            ),
+                            onSelected: (_) => setState(() => _gpsDefaut = option),
+                          ),
                       ],
-                      selected: {_gpsDefaut},
-                      style: ButtonStyle(
-                        foregroundColor: WidgetStateProperty.resolveWith(
-                          (states) => states.contains(WidgetState.selected) ? Colors.black : Colors.white70,
-                        ),
-                        backgroundColor: WidgetStateProperty.resolveWith(
-                          (states) => states.contains(WidgetState.selected) ? _orKelegance : Colors.white10,
-                        ),
-                      ),
-                      onSelectionChanged: (sel) => setState(() => _gpsDefaut = sel.first),
                     ),
                   ],
                 ),
               ),
               const SizedBox(height: 28),
-              const KeleganceBoutonQrAdmin(),
+              if (_accesComplet)
+                const KeleganceBoutonQrAdmin()
+              else
+                const KeleganceBoutonQrChauffeur(),
+              const SizedBox(height: 16),
+              Container(
+                padding: const EdgeInsets.all(16),
+                decoration: BoxDecoration(
+                  color: const Color(0xFF0D0D0D),
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(color: _orKelegance.withOpacity(0.22)),
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    Text(
+                      KeleganceOtaUpdate.disponible ? 'Mise à jour automatique (OTA)' : 'Mise à jour de l\'application',
+                      style: const TextStyle(color: Colors.white, fontSize: 13, fontWeight: FontWeight.w500),
+                    ),
+                    const SizedBox(height: 6),
+                    Text(
+                      KeleganceOtaUpdate.disponible
+                          ? 'Télécharge et installe la dernière version sans brancher le téléphone.'
+                          : 'Vérifiez et rechargez les dernières ressources (PWA / web).',
+                      style: TextStyle(color: Colors.white.withOpacity(0.45), fontSize: 10),
+                    ),
+                    const SizedBox(height: 12),
+                    OutlinedButton.icon(
+                      style: OutlinedButton.styleFrom(
+                        side: BorderSide(color: _orKelegance.withOpacity(0.55)),
+                        foregroundColor: _orKelegance,
+                      ),
+                      onPressed: () => unawaited(KeleganceOtaUpdate.verifierMiseAJourUniverselle(context)),
+                      icon: const Icon(Icons.system_update_alt_rounded, size: 18),
+                      label: const Text('Vérifier les mises à jour', style: TextStyle(fontSize: 12)),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 28),
+              const KeleganceRolesDiagnostic(),
               const SizedBox(height: 28),
               FilledButton(
-                onPressed: _retourAccueilChauffeur,
+                onPressed: () async {
+                  await _sauvegarderPreferencesConsole();
+                  if (!mounted) return;
+                  _retourAccueilChauffeur();
+                },
                 style: FilledButton.styleFrom(
                   backgroundColor: _orKelegance,
                   foregroundColor: Colors.black,
@@ -7000,19 +8499,19 @@ class _PageConsoleState extends State<PageConsole> with WidgetsBindingObserver {
   }
 
   Widget _buildSuiviHistoriqueJournalier() {
-    return StreamBuilder<QuerySnapshot>(
-      stream: FirebaseFirestore.instance.collection('missions').orderBy('date').snapshots(),
-      builder: (context, snapshot) {
-        if (snapshot.hasError) return Center(child: Text('Erreur : ${snapshot.error}'));
-        if (!snapshot.hasData) {
+    return KeleganceMissionsStreamBuilder(
+      builder: (context, snapshot, _) {
+        if (snapshot == null) {
           return const Center(child: CircularProgressIndicator(color: Colors.amber));
         }
 
-        final docs = snapshot.data?.docs ?? [];
+        final docs = snapshot.docs;
         final aujourdhui = <Map<String, dynamic>>[];
 
+        final email = FirebaseAuth.instance.currentUser?.email;
         for (final doc in docs) {
           final data = doc.data() as Map<String, dynamic>;
+          if (!KeleganceRoles.peutVoirMission(data, email: email)) continue;
           final statut = (data['statut']?.toString() ?? '').toUpperCase().replaceAll('É', 'E').trim();
           if (statut != 'TERMINE' && statut != 'TERMINÉ') continue;
           final dateCloture = _dateClotureCourse(data);
@@ -7020,7 +8519,7 @@ class _PageConsoleState extends State<PageConsole> with WidgetsBindingObserver {
           aujourdhui.add({...data, 'id': doc.id});
         }
 
-        final demos = KeleganceHistoriqueDemo.coursesTestAujourdhui();
+        final demos = _accesBrasDroit ? KeleganceHistoriqueDemo.coursesTestAujourdhui() : <Map<String, dynamic>>[];
         final fusion = <Map<String, dynamic>>[...demos, ...aujourdhui];
         fusion.sort((a, b) {
           final da = KeleganceMissionTri.extraireHorodatage(a);
@@ -7268,11 +8767,9 @@ class _PageConsoleState extends State<PageConsole> with WidgetsBindingObserver {
   }
 
   Widget _buildEcranRevenus() {
-    return StreamBuilder<QuerySnapshot>(
-      stream: FirebaseFirestore.instance.collection('missions').snapshots(),
-      builder: (context, snapshot) {
-        if (snapshot.hasError) return Center(child: Text('Erreur : ${snapshot.error}'));
-        if (!snapshot.hasData) {
+    return KeleganceMissionsStreamBuilder(
+      builder: (context, snapshot, _) {
+        if (snapshot == null) {
           return const Center(child: CircularProgressIndicator(color: Colors.amber));
         }
 
@@ -7284,7 +8781,7 @@ class _PageConsoleState extends State<PageConsole> with WidgetsBindingObserver {
           parJour['${j.year}-${j.month}-${j.day}'] = 0;
         }
 
-        for (final doc in snapshot.data?.docs ?? []) {
+        for (final doc in snapshot.docs) {
           final data = doc.data() as Map<String, dynamic>;
           final statut = (data['statut']?.toString() ?? '').toUpperCase().replaceAll('É', 'E').trim();
           if (statut != 'TERMINE' && statut != 'TERMINÉ') continue;
@@ -7385,17 +8882,23 @@ class _PageConsoleState extends State<PageConsole> with WidgetsBindingObserver {
   }
 
   Widget _buildChauffeurConsoleAgenda() {
-    return StreamBuilder<QuerySnapshot>(
-      stream: FirebaseFirestore.instance.collection('missions').orderBy('date').snapshots(),
-      builder: (context, snapshot) {
-        if (snapshot.hasError) return Center(child: Text("Erreur : ${snapshot.error}"));
-        if (!snapshot.hasData) {
+    return KeleganceMissionsStreamBuilder(
+      builder: (context, snapshot, live) {
+        if (snapshot == null) {
           return const Center(child: CircularProgressIndicator(color: Colors.amber));
         }
 
-        final docs = KeleganceMissionTri.trierChronologique(snapshot.data?.docs ?? []);
-        final missionsActives = docs.where((doc) => !_estMissionHistorique(doc.data() as Map<String, dynamic>)).toList();
-        final missionsHistorique = docs.where((doc) => _estMissionHistorique(doc.data() as Map<String, dynamic>)).toList();
+        final docs = KeleganceMissionTri.trierChronologique(snapshot.docs);
+        final email = FirebaseAuth.instance.currentUser?.email;
+        final docsFiltres = _accesBrasDroit
+            ? docs
+            : docs
+                .where((doc) => KeleganceRoles.peutVoirMission(doc.data() as Map<String, dynamic>, email: email))
+                .toList();
+        final missionsActives =
+            docsFiltres.where((doc) => !_estMissionHistorique(doc.data() as Map<String, dynamic>)).toList();
+        final missionsHistorique =
+            docsFiltres.where((doc) => _estMissionHistorique(doc.data() as Map<String, dynamic>)).toList();
         missionsHistorique.sort((a, b) {
           final da = KeleganceMissionTri.extraireHorodatage(a.data() as Map<String, dynamic>);
           final db = KeleganceMissionTri.extraireHorodatage(b.data() as Map<String, dynamic>);
@@ -7428,6 +8931,15 @@ class _PageConsoleState extends State<PageConsole> with WidgetsBindingObserver {
                     ],
                   ),
                 ),
+                if (live)
+                  Padding(
+                    padding: const EdgeInsets.symmetric(vertical: 4),
+                    child: Text(
+                      'Planning synchronisé',
+                      textAlign: TextAlign.center,
+                      style: TextStyle(color: _orKelegance.withOpacity(0.75), fontSize: 10, letterSpacing: 0.5),
+                    ),
+                  ),
                 Expanded(
                   child: TabBarView(
                     children: [
@@ -7453,18 +8965,151 @@ class _PageConsoleState extends State<PageConsole> with WidgetsBindingObserver {
   }
 
   Widget _buildHomeView() {
-    return Stack(
-      fit: StackFit.expand,
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        Positioned.fill(child: _buildCarte3DFond()),
-        if (_courseChauffeurActive) _buildPanneauCourseInferieur(),
-        _buildBoutonRecentrerCarte(),
+        SafeArea(
+          bottom: false,
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              if (_accesComplet)
+                ConstrainedBox(
+                  constraints: const BoxConstraints(maxHeight: 168),
+                  child: SingleChildScrollView(
+                    physics: const ClampingScrollPhysics(),
+                    child: const KelegancePresenceEquipe(),
+                  ),
+                ),
+              if (_accesComplet) const SizedBox(height: 6),
+              _buildBandeauCaCentre(),
+            ],
+          ),
+        ),
+        Expanded(
+          child: Stack(
+            fit: StackFit.expand,
+            children: [
+              Positioned.fill(child: _buildCarte3DFond()),
+              _buildBoutonRecentrerCarte(),
+            ],
+          ),
+        ),
+        ColoredBox(
+          color: const Color(0xFF0A0A0A),
+          child: SizedBox(
+            height: _paddingMasquageBandeauGoogle,
+            width: double.infinity,
+          ),
+        ),
       ],
+    );
+  }
+
+  Widget _buildBoutonStatutChauffeurFixe() {
+    return Material(
+      color: _isOnline ? Colors.green : Colors.red,
+      borderRadius: BorderRadius.circular(20),
+      clipBehavior: Clip.antiAlias,
+      child: InkWell(
+        onTap: () async {
+          setState(() => _isOnline = !_isOnline);
+          await _synchroniserPresenceFirestore();
+          if (!mounted) return;
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text(_isOnline ? 'Vous êtes maintenant EN LIGNE' : 'Vous êtes maintenant HORS LIGNE'),
+              backgroundColor: _isOnline ? Colors.green : Colors.red,
+              duration: const Duration(seconds: 2),
+            ),
+          );
+        },
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Icon(_isOnline ? Icons.wifi : Icons.wifi_off, color: Colors.white, size: 16),
+              const SizedBox(width: 4),
+              Flexible(
+                child: FittedBox(
+                  fit: BoxFit.scaleDown,
+                  child: Text(
+                    _isOnline ? 'EN LIGNE' : 'HORS LIGNE',
+                    style: const TextStyle(
+                      fontWeight: FontWeight.bold,
+                      color: Colors.white,
+                      fontSize: 9,
+                      letterSpacing: 0.2,
+                    ),
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildBarreNavigationChauffeur() {
+    return ColoredBox(
+      color: const Color(0xFF0A0A0A),
+      child: SizedBox(
+        height: 64,
+        child: Row(
+          children: [
+            Expanded(
+              child: InkWell(
+                onTap: () => _naviguerVersEcran(_EcranChauffeur.accueil),
+                child: Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    Icon(Icons.home, color: _ecran == _EcranChauffeur.accueil ? Colors.amber : Colors.white54, size: 22),
+                    Text(
+                      'Accueil',
+                      style: TextStyle(
+                        color: _ecran == _EcranChauffeur.accueil ? Colors.amber : Colors.white54,
+                        fontSize: 11,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+            Expanded(
+              child: Center(child: _buildBoutonStatutChauffeurFixe()),
+            ),
+            Expanded(
+              child: InkWell(
+                onTap: () => _naviguerVersEcran(_EcranChauffeur.reservations),
+                child: Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    Icon(Icons.calendar_month, color: _ecran == _EcranChauffeur.reservations ? Colors.amber : Colors.white54, size: 22),
+                    Text(
+                      'Réservations',
+                      style: TextStyle(
+                        color: _ecran == _EcranChauffeur.reservations ? Colors.amber : Colors.white54,
+                        fontSize: 11,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
     );
   }
 
   @override
   Widget build(BuildContext context) {
+    final navVisible = !_courseImmersive;
+
     return PopScope(
       canPop: _ecran == _EcranChauffeur.accueil,
       onPopInvokedWithResult: (didPop, result) {
@@ -7476,7 +9121,7 @@ class _PageConsoleState extends State<PageConsole> with WidgetsBindingObserver {
       child: Scaffold(
       backgroundColor: _noirProfond,
       extendBodyBehindAppBar: _carteAccueilVisible,
-      extendBody: _carteAccueilVisible,
+      extendBody: false,
 
       drawer: _ecran == _EcranChauffeur.parametres ? null : _buildDrawerChauffeur(),
 
@@ -7501,6 +9146,15 @@ class _PageConsoleState extends State<PageConsole> with WidgetsBindingObserver {
               ),
         centerTitle: true,
         actions: [
+          if (_accesComplet)
+            TextButton.icon(
+              onPressed: () => KeleganceBonCommandeForm.afficher(context),
+              icon: const Icon(Icons.assignment_return, color: _orKelegance, size: 18),
+              label: const Text(
+                '+ Bon de commande retour',
+                style: TextStyle(color: _orKelegance, fontSize: 11, fontWeight: FontWeight.w600),
+              ),
+            ),
           IconButton(
             padding: EdgeInsets.zero,
             constraints: const BoxConstraints(minWidth: 34, minHeight: 34),
@@ -7543,71 +9197,42 @@ class _PageConsoleState extends State<PageConsole> with WidgetsBindingObserver {
         fit: StackFit.expand,
         children: [
           _buildCorpsChauffeur(),
-          if (_ecran == _EcranChauffeur.accueil) _buildBandeauCaCentre(),
+          if (_courseChauffeurActive) _buildPanneauCourseInferieur(),
+          if (_guidageInAppOuvert && !_courseChauffeurActive) _buildPanneauGuidageInApp(),
+          if (_alerteCourseAffichee) _buildOverlayAlerteCourse(),
+          if (_sosAffiche) _buildOverlaySOS(),
+          if (_demarrageCourseEnCours)
+            Container(
+              color: Colors.black.withOpacity(0.45),
+              alignment: Alignment.center,
+              child: Container(
+                padding: const EdgeInsets.symmetric(horizontal: 28, vertical: 22),
+                decoration: BoxDecoration(
+                  color: const Color(0xFF0D0D0D).withOpacity(0.92),
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(color: _orKelegance.withOpacity(0.35)),
+                ),
+                child: const Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    SizedBox(
+                      width: 28,
+                      height: 28,
+                      child: CircularProgressIndicator(strokeWidth: 2.5, color: _orKelegance),
+                    ),
+                    SizedBox(height: 14),
+                    Text(
+                      'Démarrage de la course...',
+                      style: TextStyle(color: Colors.white70, fontSize: 13, letterSpacing: 0.3),
+                    ),
+                  ],
+                ),
+              ),
+            ),
         ],
       ),
 
-      bottomNavigationBar: _courseImmersive ? null : BottomAppBar(
-        color: Colors.grey[950],
-        shape: const CircularNotchedRectangle(),
-        notchMargin: 8.0,
-        child: SizedBox(
-          height: 60,
-          child: Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: [
-              Expanded(
-                child: InkWell(
-                  onTap: () => _naviguerVersEcran(_EcranChauffeur.accueil),
-                  child: Column(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      Icon(Icons.home, color: _ecran == _EcranChauffeur.accueil ? Colors.amber : Colors.white54),
-                      Text("Accueil", style: TextStyle(color: _ecran == _EcranChauffeur.accueil ? Colors.amber : Colors.white54, fontSize: 11)),
-                    ],
-                  ),
-                ),
-              ),
-              
-              const SizedBox(width: 80),
-
-              Expanded(
-                child: InkWell(
-                  onTap: () => _naviguerVersEcran(_EcranChauffeur.reservations),
-                  child: Column(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      Icon(Icons.calendar_month, color: _ecran == _EcranChauffeur.reservations ? Colors.amber : Colors.white54),
-                      Text("Réservations", style: TextStyle(color: _ecran == _EcranChauffeur.reservations ? Colors.amber : Colors.white54, fontSize: 11)),
-                    ],
-                  ),
-                ),
-              ),
-            ],
-          ),
-        ),
-      ),
-
-      floatingActionButtonLocation: FloatingActionButtonLocation.centerDocked,
-      floatingActionButton: _courseImmersive
-          ? null
-          : FloatingActionButton.extended(
-              backgroundColor: _isOnline ? Colors.green : Colors.red,
-              onPressed: () {
-                setState(() {
-                  _isOnline = !_isOnline;
-                });
-                ScaffoldMessenger.of(context).showSnackBar(
-                  SnackBar(
-                    content: Text(_isOnline ? "Vous êtes maintenant EN LIGNE" : "Vous êtes maintenant HORS LIGNE"),
-                    backgroundColor: _isOnline ? Colors.green : Colors.red,
-                    duration: const Duration(seconds: 2),
-                  ),
-                );
-              },
-              label: Text(_isOnline ? "EN LIGNE" : "HORS LIGNE", style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.white, fontSize: 12)),
-              icon: Icon(_isOnline ? Icons.wifi : Icons.wifi_off, color: Colors.white),
-            ),
+      bottomNavigationBar: navVisible ? _buildBarreNavigationChauffeur() : null,
       ),
     );
   }

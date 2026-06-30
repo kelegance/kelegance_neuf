@@ -1,9 +1,14 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 
 import 'kelegance_qr_cadre_prestige.dart';
 import 'kelegance_qr_codes.dart';
+import 'kelegance_qr_scanner_page.dart';
+import 'kelegance_invitation_chauffeur_ui.dart';
+import 'kelegance_roles.dart';
 
-/// Page admin — génération des QR codes Client et Bras Droit.
+/// Page admin — QR Collaborateur (vert) et Bras Droit (or).
 class QrGeneratorPage extends StatefulWidget {
   const QrGeneratorPage({super.key});
 
@@ -12,20 +17,21 @@ class QrGeneratorPage extends StatefulWidget {
 }
 
 class _QrGeneratorPageState extends State<QrGeneratorPage> {
-  KeleganceQrType _typeSelectionne = KeleganceQrType.client;
-  ImageProvider? _logo;
+  KeleganceQrType _typeSelectionne = KeleganceQrType.collaborateur;
   bool _telechargementEnCours = false;
+  bool _regenerationEnCours = false;
+
+  static const Color _vertCollaborateur = Color(0xFF2E7D52);
+  static const Color _orBrasDroit = KeleganceQrTheme.or;
 
   @override
   void initState() {
     super.initState();
-    _chargerLogo();
-  }
-
-  Future<void> _chargerLogo() async {
-    final logo = await KeleganceQrCodes.chargerLogo();
-    if (!mounted) return;
-    setState(() => _logo = logo);
+    unawaited(
+      KeleganceRoles.initialiserPourUtilisateurCourant().then((_) {
+        if (mounted) setState(() {});
+      }),
+    );
   }
 
   Future<void> _telecharger() async {
@@ -49,9 +55,45 @@ class _QrGeneratorPageState extends State<QrGeneratorPage> {
     }
   }
 
+  Future<void> _regenererTous() async {
+    setState(() => _regenerationEnCours = true);
+    try {
+      final exportes = await KeleganceQrCodes.regenererEtExporterTous();
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          backgroundColor: Colors.green,
+          content: Text('$exportes QR code(s) régénéré(s) avec les URLs actuelles.'),
+        ),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(backgroundColor: Colors.red, content: Text('Erreur régénération : $e')),
+      );
+    } finally {
+      if (mounted) setState(() => _regenerationEnCours = false);
+    }
+  }
+
+  Future<void> _ouvrirScanner() async {
+    final code = await Navigator.push<String>(
+      context,
+      MaterialPageRoute(builder: (_) => const KeleganceQrScannerPage()),
+    );
+    if (!mounted || code == null) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        backgroundColor: Colors.green,
+        content: Text('QR détecté : $code'),
+        duration: const Duration(seconds: 5),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
-    if (!KeleganceQrCodes.utilisateurEstAdmin()) {
+    if (!KeleganceRoles.peutAccederRoutesAdmin()) {
       return Scaffold(
         backgroundColor: KeleganceQrTheme.fond,
         appBar: AppBar(
@@ -63,7 +105,7 @@ class _QrGeneratorPageState extends State<QrGeneratorPage> {
           child: Padding(
             padding: EdgeInsets.all(28),
             child: Text(
-              'Accès réservé à l\'administrateur Kelegance.',
+              'Accès réservé aux Bras Droit Kelegance.',
               textAlign: TextAlign.center,
               style: TextStyle(color: KeleganceQrTheme.texteDiscret, fontSize: 14),
             ),
@@ -72,17 +114,16 @@ class _QrGeneratorPageState extends State<QrGeneratorPage> {
       );
     }
 
-    final url = KeleganceQrCodes.urlPour(_typeSelectionne);
-    const or = KeleganceQrTheme.or;
+    final payloadHub = KeleganceQrCodes.donneesQr(_typeSelectionne);
 
     return Scaffold(
       backgroundColor: KeleganceQrTheme.fond,
       appBar: AppBar(
         backgroundColor: Colors.transparent,
         elevation: 0,
-        iconTheme: const IconThemeData(color: or),
+        iconTheme: const IconThemeData(color: _orBrasDroit),
         title: const Text(
-          'QR CODES PRESTIGE',
+          'QR CODES ÉQUIPE',
           style: TextStyle(
             color: KeleganceQrTheme.or,
             fontSize: 13,
@@ -91,6 +132,16 @@ class _QrGeneratorPageState extends State<QrGeneratorPage> {
           ),
         ),
         centerTitle: true,
+        actions: [
+          IconButton(
+            tooltip: 'Inviter un chauffeur',
+            icon: const Icon(Icons.group_add_outlined, color: _orBrasDroit),
+            onPressed: () => Navigator.push(
+              context,
+              MaterialPageRoute(builder: (_) => const KelegancePageInvitationEquipe()),
+            ),
+          ),
+        ],
       ),
       body: SafeArea(
         child: SingleChildScrollView(
@@ -99,7 +150,8 @@ class _QrGeneratorPageState extends State<QrGeneratorPage> {
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
               Text(
-                'Générez les codes d\'accès directs pour vos clients et vos Bras Droits.',
+                'Android : téléchargement APK au scan.\n'
+                'iPhone : installation PWA puis console selon le profil.',
                 textAlign: TextAlign.center,
                 style: TextStyle(
                   color: KeleganceQrTheme.textePrincipal.withOpacity(0.55),
@@ -110,25 +162,20 @@ class _QrGeneratorPageState extends State<QrGeneratorPage> {
               const SizedBox(height: 28),
               Row(
                 children: [
-                  Expanded(
-                    child: _boutonType(
-                      type: KeleganceQrType.client,
-                      titre: 'CLIENT',
-                      sousTitre: '/reserver',
-                      couleurFond: or,
-                      couleurTexte: Colors.black,
-                    ),
+                  _boutonType(
+                    type: KeleganceQrType.collaborateur,
+                    titre: 'COLLABORATEUR',
+                    sousTitre: 'Interface restreinte',
+                    couleurFond: _vertCollaborateur,
+                    couleurTexte: Colors.white,
                   ),
                   const SizedBox(width: 12),
-                  Expanded(
-                    child: _boutonType(
-                      type: KeleganceQrType.brasDroit,
-                      titre: 'BRAS DROIT',
-                      sousTitre: '/gestion',
-                      couleurFond: KeleganceQrTheme.fondCarte,
-                      couleurTexte: or,
-                      bordureOr: true,
-                    ),
+                  _boutonType(
+                    type: KeleganceQrType.brasDroit,
+                    titre: 'BRAS DROIT',
+                    sousTitre: 'Admin complet',
+                    couleurFond: _orBrasDroit,
+                    couleurTexte: Colors.black,
                   ),
                 ],
               ),
@@ -136,13 +183,11 @@ class _QrGeneratorPageState extends State<QrGeneratorPage> {
               Center(
                 child: KeleganceQrCadrePrestige(
                   type: _typeSelectionne,
-                  url: url,
-                  logo: _logo,
                 ),
               ),
               const SizedBox(height: 18),
               SelectableText(
-                url,
+                payloadHub,
                 textAlign: TextAlign.center,
                 style: TextStyle(
                   color: KeleganceQrTheme.textePrincipal.withOpacity(0.72),
@@ -150,6 +195,43 @@ class _QrGeneratorPageState extends State<QrGeneratorPage> {
                 ),
               ),
               const SizedBox(height: 28),
+              OutlinedButton.icon(
+                onPressed: _ouvrirScanner,
+                icon: const Icon(Icons.qr_code_scanner_rounded, size: 18),
+                label: const Text('Scanner un QR (caméra ou galerie)', style: TextStyle(fontSize: 12)),
+                style: OutlinedButton.styleFrom(
+                  foregroundColor: _orBrasDroit,
+                  side: BorderSide(color: _orBrasDroit.withOpacity(0.45)),
+                  padding: const EdgeInsets.symmetric(vertical: 14),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(KeleganceQrTheme.rayonBouton),
+                  ),
+                ),
+              ),
+              const SizedBox(height: 12),
+              OutlinedButton.icon(
+                onPressed: _regenerationEnCours ? null : _regenererTous,
+                icon: _regenerationEnCours
+                    ? const SizedBox(
+                        width: 16,
+                        height: 16,
+                        child: CircularProgressIndicator(strokeWidth: 2, color: KeleganceQrTheme.or),
+                      )
+                    : const Icon(Icons.refresh_rounded, size: 18),
+                label: Text(
+                  _regenerationEnCours ? 'Régénération…' : 'Régénérer tous les QR (URLs actuelles)',
+                  style: const TextStyle(fontSize: 12),
+                ),
+                style: OutlinedButton.styleFrom(
+                  foregroundColor: KeleganceQrTheme.textePrincipal.withOpacity(0.85),
+                  side: BorderSide(color: _orBrasDroit.withOpacity(0.28)),
+                  padding: const EdgeInsets.symmetric(vertical: 14),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(KeleganceQrTheme.rayonBouton),
+                  ),
+                ),
+              ),
+              const SizedBox(height: 16),
               Row(
                 children: [
                   Expanded(
@@ -158,8 +240,8 @@ class _QrGeneratorPageState extends State<QrGeneratorPage> {
                       icon: const Icon(Icons.link_rounded, size: 18),
                       label: const Text('Copier le lien', style: TextStyle(fontSize: 12)),
                       style: OutlinedButton.styleFrom(
-                        foregroundColor: or,
-                        side: BorderSide(color: or.withOpacity(0.45)),
+                        foregroundColor: _orBrasDroit,
+                        side: BorderSide(color: _orBrasDroit.withOpacity(0.45)),
                         padding: const EdgeInsets.symmetric(vertical: 14),
                         shape: RoundedRectangleBorder(
                           borderRadius: BorderRadius.circular(KeleganceQrTheme.rayonBouton),
@@ -183,8 +265,11 @@ class _QrGeneratorPageState extends State<QrGeneratorPage> {
                         style: const TextStyle(fontSize: 12),
                       ),
                       style: FilledButton.styleFrom(
-                        backgroundColor: or,
-                        foregroundColor: Colors.black,
+                        backgroundColor: _typeSelectionne == KeleganceQrType.collaborateur
+                            ? _vertCollaborateur
+                            : _orBrasDroit,
+                        foregroundColor:
+                            _typeSelectionne == KeleganceQrType.collaborateur ? Colors.white : Colors.black,
                         padding: const EdgeInsets.symmetric(vertical: 14),
                         shape: RoundedRectangleBorder(
                           borderRadius: BorderRadius.circular(KeleganceQrTheme.rayonBouton),
@@ -207,55 +292,55 @@ class _QrGeneratorPageState extends State<QrGeneratorPage> {
     required String sousTitre,
     required Color couleurFond,
     required Color couleurTexte,
-    bool bordureOr = false,
   }) {
     final selectionne = _typeSelectionne == type;
-    const or = KeleganceQrTheme.or;
 
-    return Material(
-      color: selectionne ? couleurFond : couleurFond.withOpacity(0.35),
-      borderRadius: BorderRadius.circular(KeleganceQrTheme.rayonBouton),
-      child: InkWell(
-        onTap: () => setState(() => _typeSelectionne = type),
+    return Expanded(
+      child: Material(
+        color: selectionne ? couleurFond : couleurFond.withOpacity(0.28),
         borderRadius: BorderRadius.circular(KeleganceQrTheme.rayonBouton),
-        child: Container(
-          padding: const EdgeInsets.symmetric(vertical: 16, horizontal: 10),
-          decoration: BoxDecoration(
-            borderRadius: BorderRadius.circular(KeleganceQrTheme.rayonBouton),
-            border: Border.all(
-              color: bordureOr
-                  ? (selectionne ? or : or.withOpacity(0.35))
-                  : (selectionne ? Colors.transparent : or.withOpacity(0.2)),
-              width: selectionne ? 1.4 : 0.8,
+        child: InkWell(
+          onTap: () => setState(() => _typeSelectionne = type),
+          borderRadius: BorderRadius.circular(KeleganceQrTheme.rayonBouton),
+          child: Container(
+            padding: const EdgeInsets.symmetric(vertical: 16, horizontal: 10),
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(KeleganceQrTheme.rayonBouton),
+              border: Border.all(
+                color: selectionne ? couleurFond : couleurFond.withOpacity(0.45),
+                width: selectionne ? 1.6 : 0.8,
+              ),
             ),
-          ),
-          child: Column(
-            children: [
-              Icon(
-                type == KeleganceQrType.client ? Icons.person_outline : Icons.badge_outlined,
-                color: couleurTexte,
-                size: 22,
-              ),
-              const SizedBox(height: 8),
-              Text(
-                titre,
-                style: TextStyle(
+            child: Column(
+              children: [
+                Icon(
+                  type == KeleganceQrType.collaborateur ? Icons.person_outline : Icons.badge_outlined,
                   color: couleurTexte,
-                  fontWeight: FontWeight.w600,
-                  fontSize: 12,
-                  letterSpacing: 1.1,
+                  size: 22,
                 ),
-              ),
-              const SizedBox(height: 4),
-              Text(
-                sousTitre,
-                style: TextStyle(
-                  color: couleurTexte.withOpacity(0.75),
-                  fontSize: 10,
-                  letterSpacing: 0.4,
+                const SizedBox(height: 8),
+                Text(
+                  titre,
+                  textAlign: TextAlign.center,
+                  style: TextStyle(
+                    color: couleurTexte,
+                    fontWeight: FontWeight.w600,
+                    fontSize: 11,
+                    letterSpacing: 0.8,
+                  ),
                 ),
-              ),
-            ],
+                const SizedBox(height: 4),
+                Text(
+                  sousTitre,
+                  textAlign: TextAlign.center,
+                  style: TextStyle(
+                    color: couleurTexte.withOpacity(0.8),
+                    fontSize: 9,
+                    letterSpacing: 0.3,
+                  ),
+                ),
+              ],
+            ),
           ),
         ),
       ),

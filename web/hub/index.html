@@ -1,0 +1,1012 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+  <meta name="description" content="KELEGANCE — Réservez votre transfert premium vers les aéroports et gares.">
+  <meta name="theme-color" content="#0A0A0A">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="KELEGANCE">
+  <title>KELEGANCE — Réservation</title>
+  <script src="https://maps.googleapis.com/maps/api/js?key=AIzaSyCM_g7NBu0L8WZDi8SuJTyt2wiilbCvfmI&libraries=places"></script>
+  <script>
+    window.kelegancePlacesAutocomplete = function (input) {
+      return new Promise(function (resolve) {
+        if (!window.google || !google.maps || !google.maps.places) {
+          resolve([]);
+          return;
+        }
+        var service = new google.maps.places.AutocompleteService();
+        service.getPlacePredictions(
+          { input: input, componentRestrictions: { country: 'fr' }, language: 'fr' },
+          function (predictions, status) {
+            if (status !== google.maps.places.PlacesServiceStatus.OK || !predictions) {
+              resolve([]);
+              return;
+            }
+            resolve(predictions.map(function (p) {
+              return { description: p.description, placeId: p.place_id };
+            }));
+          }
+        );
+      });
+    };
+  </script>
+  <link rel="icon" type="image/png" href="/favicon.png">
+  <link rel="manifest" href="/hub/manifest.webmanifest">
+  <link rel="apple-touch-icon" href="/icons/Icon-512.png">
+  <link rel="apple-touch-icon" sizes="180x180" href="/icons/Icon-512.png">
+  <link rel="apple-touch-icon" sizes="512x512" href="/icons/Icon-512.png">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;0,400;0,500;1,300&family=DM+Sans:ital,opsz,wght@0,9..40,300;0,9..40,400;0,9..40,500;1,9..40,300&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --noir: #0A0A0A;
+      --anthracite: #141414;
+      --or: #D4AF37;
+      --or-doux: rgba(212, 175, 55, 0.72);
+      --texte: #F5F0E6;
+      --texte-discret: rgba(245, 240, 230, 0.58);
+      --rayon: 2px;
+    }
+
+    *, *::before, *::after { box-sizing: border-box; }
+
+    html, body {
+      margin: 0;
+      min-height: 100%;
+      background: var(--noir);
+      color: var(--texte);
+      font-family: 'DM Sans', system-ui, sans-serif;
+      font-weight: 300;
+      -webkit-font-smoothing: antialiased;
+    }
+
+    body {
+      display: flex;
+      flex-direction: column;
+      min-height: 100vh;
+      min-height: 100dvh;
+    }
+
+    .fond {
+      position: fixed;
+      inset: 0;
+      pointer-events: none;
+      background:
+        radial-gradient(ellipse 80% 50% at 50% -10%, rgba(212, 175, 55, 0.07), transparent 55%),
+        radial-gradient(ellipse 60% 40% at 50% 110%, rgba(212, 175, 55, 0.04), transparent 50%),
+        var(--noir);
+    }
+
+    main {
+      position: relative;
+      z-index: 1;
+      flex: 1;
+      display: flex;
+      align-items: flex-start;
+      justify-content: center;
+      padding: max(20px, env(safe-area-inset-top)) 20px max(28px, env(safe-area-inset-bottom));
+    }
+
+    .contenu {
+      width: 100%;
+      max-width: 420px;
+      text-align: center;
+      padding-bottom: 12px;
+    }
+
+    .logo {
+      width: 72px;
+      height: 72px;
+      margin: 0 auto 18px;
+      border-radius: 50%;
+      border: 1px solid rgba(212, 175, 55, 0.35);
+      padding: 6px;
+      background: var(--anthracite);
+      object-fit: contain;
+    }
+
+    .marque {
+      font-family: 'Cormorant Garamond', Georgia, serif;
+      font-size: clamp(1.75rem, 6vw, 2.15rem);
+      font-weight: 400;
+      letter-spacing: 0.28em;
+      text-indent: 0.28em;
+      color: var(--or);
+      margin: 0 0 20px;
+    }
+
+    .accroche {
+      font-family: 'Cormorant Garamond', Georgia, serif;
+      font-size: clamp(1.25rem, 4.5vw, 1.55rem);
+      font-weight: 300;
+      line-height: 1.45;
+      color: var(--texte);
+      margin: 0 0 18px;
+    }
+
+    .sous-texte {
+      font-size: 0.92rem;
+      line-height: 1.65;
+      color: var(--texte-discret);
+      margin: 0 0 22px;
+      max-width: 36ch;
+      margin-left: auto;
+      margin-right: auto;
+    }
+
+    /* ——— Formulaire réservation (borne QR) ——— */
+    .zone-reservation {
+      text-align: left;
+      margin-top: 4px;
+    }
+
+    .form-prestige {
+      position: relative;
+      padding: 22px 20px 20px;
+      border: 1px solid rgba(212, 175, 55, 0.38);
+      background: rgba(20, 20, 20, 0.88);
+      border-radius: var(--rayon);
+    }
+
+    .form-prestige::before,
+    .form-prestige::after {
+      content: '';
+      position: absolute;
+      width: 18px;
+      height: 18px;
+      border-color: var(--or);
+      border-style: solid;
+      pointer-events: none;
+      opacity: 0.55;
+    }
+
+    .form-prestige::before {
+      top: 8px; left: 8px;
+      border-width: 1px 0 0 1px;
+    }
+
+    .form-prestige::after {
+      bottom: 8px; right: 8px;
+      border-width: 0 1px 1px 0;
+    }
+
+    .form-prestige h2 {
+      margin: 0 0 18px;
+      font-family: 'Cormorant Garamond', Georgia, serif;
+      font-size: 1.15rem;
+      font-weight: 400;
+      color: var(--or);
+      letter-spacing: 0.14em;
+      text-align: center;
+      text-transform: uppercase;
+    }
+
+    .champ {
+      margin-bottom: 14px;
+    }
+
+    .champ label {
+      display: block;
+      margin-bottom: 6px;
+      font-size: 0.62rem;
+      font-weight: 500;
+      letter-spacing: 0.2em;
+      text-transform: uppercase;
+      color: var(--or-doux);
+    }
+
+    .champ input,
+    .champ select {
+      width: 100%;
+      padding: 12px 14px;
+      border-radius: var(--rayon);
+      border: 1px solid rgba(212, 175, 55, 0.28);
+      background: rgba(10, 10, 10, 0.92);
+      color: var(--texte);
+      font-family: 'DM Sans', sans-serif;
+      font-size: 0.92rem;
+      font-weight: 300;
+      transition: border-color 0.2s ease, box-shadow 0.2s ease;
+    }
+
+    .champ input:focus,
+    .champ select:focus {
+      outline: none;
+      border-color: rgba(212, 175, 55, 0.65);
+      box-shadow: 0 0 0 2px rgba(212, 175, 55, 0.12);
+    }
+
+    .champ input[type="date"],
+    .champ input[type="time"] {
+      color-scheme: dark;
+    }
+
+    .champ-ligne {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 12px;
+    }
+
+    .champ-autocomplete {
+      position: relative;
+    }
+
+    .suggestions {
+      display: none;
+      position: absolute;
+      left: 0;
+      right: 0;
+      top: calc(100% + 4px);
+      z-index: 20;
+      margin: 0;
+      padding: 4px 0;
+      list-style: none;
+      background: #141414;
+      border: 1px solid rgba(212, 175, 55, 0.35);
+      border-radius: var(--rayon);
+      max-height: 180px;
+      overflow-y: auto;
+      box-shadow: 0 12px 32px rgba(0, 0, 0, 0.45);
+    }
+
+    .suggestions.visible { display: block; }
+
+    .suggestions li {
+      padding: 10px 14px;
+      font-size: 0.82rem;
+      line-height: 1.4;
+      color: var(--texte);
+      cursor: pointer;
+    }
+
+    .suggestions li:hover,
+    .suggestions li.actif {
+      background: rgba(212, 175, 55, 0.1);
+      color: var(--or);
+    }
+
+    .form-erreur {
+      margin: 0 0 12px;
+      padding: 10px 12px;
+      font-size: 0.8rem;
+      line-height: 1.45;
+      color: #ffb4b4;
+      border: 1px solid rgba(255, 100, 100, 0.35);
+      border-radius: var(--rayon);
+      background: rgba(80, 20, 20, 0.35);
+    }
+
+    .btn-envoi {
+      margin-top: 6px;
+      width: 100%;
+    }
+
+    .btn.envoi {
+      opacity: 0.72;
+      pointer-events: none;
+    }
+
+    .confirmation {
+      text-align: center;
+      padding: 28px 20px;
+      border: 1px solid rgba(212, 175, 55, 0.38);
+      background: rgba(20, 20, 20, 0.88);
+      border-radius: var(--rayon);
+    }
+
+    .confirmation__icone {
+      width: 52px;
+      height: 52px;
+      margin: 0 auto 16px;
+      border-radius: 50%;
+      border: 1px solid rgba(212, 175, 55, 0.45);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: var(--or);
+      font-size: 1.5rem;
+    }
+
+    .confirmation h2 {
+      margin: 0 0 10px;
+      font-family: 'Cormorant Garamond', Georgia, serif;
+      font-size: 1.35rem;
+      font-weight: 400;
+      color: var(--or);
+    }
+
+    .confirmation p {
+      margin: 0 0 8px;
+      font-size: 0.88rem;
+      line-height: 1.6;
+      color: var(--texte-discret);
+    }
+
+    .confirmation .ref {
+      font-family: 'Cormorant Garamond', Georgia, serif;
+      font-size: 1.1rem;
+      color: var(--texte);
+      letter-spacing: 0.12em;
+    }
+
+    .confirmation .btn {
+      margin-top: 20px;
+    }
+
+    /* ——— Overlay discrétion (arrière-plan) ——— */
+    .overlay-discretion {
+      position: fixed;
+      inset: 0;
+      z-index: 10000;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 18px;
+      background: var(--noir);
+      opacity: 0;
+      visibility: hidden;
+      pointer-events: none;
+      transition: opacity 0.12s ease, visibility 0.12s ease;
+    }
+
+    .overlay-discretion.visible {
+      opacity: 1;
+      visibility: visible;
+      pointer-events: auto;
+    }
+
+    .overlay-discretion img {
+      width: 72px;
+      height: 72px;
+      border-radius: 50%;
+      border: 1px solid rgba(212, 175, 55, 0.35);
+      padding: 5px;
+      background: var(--anthracite);
+      object-fit: contain;
+    }
+
+    .overlay-discretion p {
+      margin: 0;
+      font-family: 'Cormorant Garamond', Georgia, serif;
+      font-size: 1.35rem;
+      letter-spacing: 0.28em;
+      text-indent: 0.28em;
+      color: var(--or);
+    }
+
+    .ios-install {
+      display: none;
+      text-align: left;
+      margin: 0 0 24px;
+      padding: 18px 18px 16px;
+      border-radius: var(--rayon);
+      border: 1px solid rgba(212, 175, 55, 0.35);
+      background: rgba(20, 20, 20, 0.92);
+    }
+
+    .ios-install.visible { display: block; }
+
+    .ios-install h2 {
+      margin: 0 0 10px;
+      font-family: 'Cormorant Garamond', Georgia, serif;
+      font-size: 1.1rem;
+      font-weight: 400;
+      color: var(--or);
+      letter-spacing: 0.06em;
+    }
+
+    .ios-install p {
+      margin: 0 0 12px;
+      font-size: 0.82rem;
+      line-height: 1.55;
+      color: var(--texte-discret);
+    }
+
+    .ios-install ol {
+      margin: 0;
+      padding-left: 1.2rem;
+      font-size: 0.82rem;
+      line-height: 1.65;
+      color: var(--texte);
+    }
+
+    .ios-install li { margin-bottom: 6px; }
+
+    .ios-install .share-icon {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      width: 1.35em;
+      height: 1.35em;
+      vertical-align: middle;
+      color: var(--or);
+    }
+
+    .actions {
+      display: flex;
+      flex-direction: column;
+      gap: 14px;
+    }
+
+    .btn {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 10px;
+      width: 100%;
+      padding: 16px 22px;
+      border-radius: var(--rayon);
+      font-family: 'DM Sans', sans-serif;
+      font-size: 0.72rem;
+      font-weight: 500;
+      letter-spacing: 0.22em;
+      text-decoration: none;
+      text-transform: uppercase;
+      transition: transform 0.2s ease, box-shadow 0.2s ease, background 0.2s ease;
+      border: none;
+      cursor: pointer;
+    }
+
+    .btn:active { transform: scale(0.98); }
+
+    .btn-primaire {
+      background: linear-gradient(135deg, #C9A227 0%, var(--or) 45%, #B8962E 100%);
+      color: #0A0A0A;
+      box-shadow: 0 8px 32px rgba(212, 175, 55, 0.18);
+    }
+
+    .btn-secondaire {
+      background: transparent;
+      color: var(--or);
+      border: 1px solid rgba(212, 175, 55, 0.45);
+    }
+
+    .btn-secondaire:hover {
+      background: rgba(212, 175, 55, 0.06);
+    }
+
+    .btn-tertiaire {
+      background: rgba(212, 175, 55, 0.08);
+      color: var(--texte);
+      border: 1px solid rgba(212, 175, 55, 0.22);
+      font-size: 0.68rem;
+    }
+
+    .btn svg {
+      width: 18px;
+      height: 18px;
+      flex-shrink: 0;
+    }
+
+    .masque { display: none !important; }
+
+    footer {
+      position: relative;
+      z-index: 1;
+      padding: 20px 24px max(24px, env(safe-area-inset-bottom));
+      text-align: center;
+      border-top: 1px solid rgba(212, 175, 55, 0.12);
+    }
+
+    footer p {
+      margin: 0;
+      font-size: 0.7rem;
+      letter-spacing: 0.12em;
+      color: var(--texte-discret);
+      line-height: 1.6;
+    }
+
+    @media (min-width: 480px) {
+      .contenu { max-width: 460px; }
+    }
+
+    .modal-onboarding {
+      position: fixed;
+      inset: 0;
+      z-index: 100;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 24px;
+      background: rgba(0, 0, 0, 0.82);
+    }
+
+    .modal-onboarding__carte {
+      width: 100%;
+      max-width: 360px;
+      padding: 24px 22px;
+      background: #141414;
+      border: 1px solid rgba(212, 175, 55, 0.35);
+      border-radius: 2px;
+      text-align: center;
+    }
+
+    .modal-onboarding__carte h2 {
+      margin: 0 0 12px;
+      font-family: 'Cormorant Garamond', Georgia, serif;
+      font-size: 1.35rem;
+      font-weight: 400;
+      color: var(--or);
+    }
+
+    .modal-onboarding__carte p {
+      margin: 0 0 12px;
+      font-size: 0.88rem;
+      line-height: 1.55;
+      color: var(--texte-discret);
+    }
+
+    .modal-onboarding__etape {
+      color: var(--texte) !important;
+      margin-bottom: 20px !important;
+    }
+
+    /* ——— Bannière PWA iPhone (sticky, animée) ——— */
+    .pwa-banner {
+      position: fixed;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      z-index: 200;
+      padding: 0 12px max(12px, env(safe-area-inset-bottom));
+      pointer-events: none;
+      transform: translateY(110%);
+      opacity: 0;
+      transition: transform 0.55s cubic-bezier(0.22, 1, 0.36, 1), opacity 0.4s ease;
+    }
+
+    .pwa-banner.visible {
+      transform: translateY(0);
+      opacity: 1;
+      pointer-events: auto;
+    }
+
+    .pwa-banner__inner {
+      max-width: 420px;
+      margin: 0 auto;
+      background: linear-gradient(165deg, #1a1a1a 0%, #0A0A0A 100%);
+      border: 1px solid rgba(212, 175, 55, 0.42);
+      border-radius: 14px 14px 2px 2px;
+      box-shadow: 0 -8px 40px rgba(0, 0, 0, 0.55), 0 0 0 1px rgba(212, 175, 55, 0.08);
+      overflow: hidden;
+    }
+
+    .pwa-banner__header {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      padding: 14px 16px 10px;
+      border-bottom: 1px solid rgba(212, 175, 55, 0.12);
+    }
+
+    .pwa-banner__logo {
+      width: 40px;
+      height: 40px;
+      border-radius: 10px;
+      border: 1px solid rgba(212, 175, 55, 0.35);
+      object-fit: contain;
+      background: #141414;
+      padding: 3px;
+      flex-shrink: 0;
+    }
+
+    .pwa-banner__title {
+      flex: 1;
+      font-family: 'Cormorant Garamond', Georgia, serif;
+      font-size: 1rem;
+      color: var(--or);
+      letter-spacing: 0.04em;
+      line-height: 1.3;
+    }
+
+    .pwa-banner__close {
+      background: none;
+      border: none;
+      color: var(--texte-discret);
+      font-size: 1.4rem;
+      line-height: 1;
+      cursor: pointer;
+      padding: 4px;
+    }
+
+    .pwa-banner__steps {
+      display: flex;
+      gap: 6px;
+      padding: 10px 16px 6px;
+    }
+
+    .pwa-banner__dot {
+      flex: 1;
+      height: 3px;
+      border-radius: 2px;
+      background: rgba(212, 175, 55, 0.18);
+      transition: background 0.35s ease;
+    }
+
+    .pwa-banner__dot.actif {
+      background: var(--or);
+      animation: pwa-pulse 1.8s ease-in-out infinite;
+    }
+
+    @keyframes pwa-pulse {
+      0%, 100% { opacity: 1; }
+      50% { opacity: 0.55; }
+    }
+
+    .pwa-banner__body {
+      padding: 8px 16px 14px;
+    }
+
+    .pwa-banner__etape {
+      display: none;
+      font-size: 0.82rem;
+      line-height: 1.55;
+      color: var(--texte);
+      animation: pwa-fade-in 0.4s ease;
+    }
+
+    .pwa-banner__etape.actif { display: block; }
+
+    @keyframes pwa-fade-in {
+      from { opacity: 0; transform: translateY(6px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+
+    .pwa-banner__etape strong { color: var(--or); }
+
+    .pwa-banner__share-hint {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      width: 1.5em;
+      height: 1.5em;
+      vertical-align: middle;
+      color: var(--or);
+      animation: pwa-bounce 2s ease-in-out infinite;
+    }
+
+    @keyframes pwa-bounce {
+      0%, 100% { transform: translateY(0); }
+      50% { transform: translateY(-3px); }
+    }
+
+    .pwa-banner__nav {
+      display: flex;
+      gap: 8px;
+      padding: 0 16px 14px;
+    }
+
+    .pwa-banner__nav button {
+      flex: 1;
+      padding: 10px;
+      border-radius: var(--rayon);
+      font-family: 'DM Sans', sans-serif;
+      font-size: 0.68rem;
+      font-weight: 500;
+      letter-spacing: 0.14em;
+      text-transform: uppercase;
+      cursor: pointer;
+      border: 1px solid rgba(212, 175, 55, 0.35);
+      background: transparent;
+      color: var(--or);
+    }
+
+    .pwa-banner__nav button.primaire {
+      background: linear-gradient(135deg, #C9A227, var(--or));
+      color: #0A0A0A;
+      border-color: transparent;
+    }
+  </style>
+</head>
+<body>
+  <div class="fond" aria-hidden="true"></div>
+
+  <div id="kelegance-overlay-discretion" class="overlay-discretion" aria-hidden="true">
+    <img src="/icons/Icon-512.png" width="72" height="72" alt="">
+    <p>KELEGANCE</p>
+  </div>
+
+  <main>
+    <div class="contenu">
+      <img class="logo" src="/icons/Icon-512.png" width="88" height="88" alt="KELEGANCE">
+      <h1 class="marque">KELEGANCE</h1>
+
+      <p class="accroche">
+        Votre partenaire privilégié pour vos transferts vers les Aéroports et les Gares.
+      </p>
+      <p class="sous-texte">
+        Réservez votre transfert en quelques instants — confirmation immédiate.
+      </p>
+
+      <div id="zone-reservation" class="zone-reservation">
+        <div id="zone-formulaire">
+          <form id="form-reservation" class="form-prestige" novalidate>
+            <h2>Votre trajet</h2>
+            <p id="reservation-erreur" class="form-erreur masque" role="alert"></p>
+            <div class="champ-ligne">
+              <div class="champ">
+                <label for="champ-date">Date</label>
+                <input type="date" id="champ-date" name="date" required autocomplete="off">
+              </div>
+              <div class="champ">
+                <label for="champ-heure">Heure</label>
+                <input type="time" id="champ-heure" name="heure" required autocomplete="off">
+              </div>
+            </div>
+            <div class="champ champ-autocomplete">
+              <label for="champ-depart">Point de départ</label>
+              <input type="text" id="champ-depart" name="depart" required placeholder="Adresse ou lieu de prise en charge" autocomplete="off">
+              <ul id="suggestions-depart" class="suggestions" role="listbox"></ul>
+            </div>
+            <div class="champ champ-autocomplete">
+              <label for="champ-destination">Destination</label>
+              <input type="text" id="champ-destination" name="destination" required placeholder="Aéroport, gare ou adresse" autocomplete="off">
+              <ul id="suggestions-destination" class="suggestions" role="listbox"></ul>
+            </div>
+            <div class="champ">
+              <label for="champ-contact">Contact (téléphone ou e-mail)</label>
+              <input type="text" id="champ-contact" name="contact" required placeholder="06 12 34 56 78 ou client@email.com" autocomplete="tel email">
+            </div>
+            <div class="champ">
+              <label for="champ-passagers">Passagers</label>
+              <select id="champ-passagers" name="passagers" required>
+                <option value="1">1 passager</option>
+                <option value="2">2 passagers</option>
+                <option value="3">3 passagers</option>
+                <option value="4">4 passagers</option>
+                <option value="5">5 passagers</option>
+                <option value="6">6 passagers</option>
+                <option value="7">7 passagers</option>
+                <option value="8">8 passagers</option>
+              </select>
+            </div>
+            <button type="submit" class="btn btn-primaire btn-envoi" id="btn-envoyer-reservation">
+              Confirmer ma réservation
+            </button>
+          </form>
+        </div>
+        <div id="reservation-succes" class="confirmation masque" role="status">
+          <div class="confirmation__icone" aria-hidden="true">✓</div>
+          <h2>Demande enregistrée</h2>
+          <p>Votre réservation a bien été transmise à notre équipe.</p>
+          <p>Nous vous confirmons votre transfert dans les plus brefs délais.</p>
+          <p class="ref">Réf. <span id="succes-ref">——</span></p>
+          <button type="button" class="btn btn-secondaire" id="btn-nouvelle-reservation">Nouvelle réservation</button>
+        </div>
+      </div>
+
+      <aside id="ios-install" class="ios-install" aria-label="Installation iPhone">
+        <h2>Installer sur iPhone</h2>
+        <p>Ajoutez KELEGANCE à votre écran d'accueil pour un accès direct, comme une application.</p>
+        <ol>
+          <li>Ouvrez cette page dans <strong>Safari</strong></li>
+          <li>Appuyez sur <span class="share-icon" aria-hidden="true"><svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M12 3v12"/><path d="M8 7l4-4 4 4"/><path d="M5 14v5a2 2 0 002 2h10a2 2 0 002-2v-5"/></svg></span> <strong>Partager</strong></li>
+          <li>Choisissez <strong>Sur l'écran d'accueil</strong></li>
+          <li>Validez avec <strong>Ajouter</strong></li>
+        </ol>
+      </aside>
+
+      <div id="zone-equipe" class="actions masque">
+        <a class="btn btn-secondaire masque" id="btn-apk" href="/releases/kelegance-latest.apk">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><path d="M12 3v12m0 0l4-4m-4 4L8 11M4 17v2a2 2 0 002 2h12a2 2 0 002-2v-2"/></svg>
+          Télécharger l'application Android
+        </a>
+        <button type="button" class="btn btn-tertiaire masque" id="btn-ios-scroll">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><path d="M12 3v12"/><path d="M8 7l4-4 4 4"/><rect x="5" y="14" width="14" height="7" rx="2"/></svg>
+          Comment installer sur iPhone
+        </button>
+        <a class="btn btn-tertiaire masque" id="btn-equipe" href="/admin/equipe">
+          Créer un profil chauffeur
+        </a>
+        <a class="btn btn-tertiaire masque" id="btn-console" href="/gestion">
+          Accéder à la console professionnelle
+        </a>
+      </div>
+    </div>
+  </main>
+
+  <footer>
+    <p>Kelegance — L'excellence au service de vos départs et arrivées.</p>
+  </footer>
+
+  <div id="modal-onboarding" class="modal-onboarding masque" role="dialog" aria-modal="true" aria-labelledby="modal-onboarding-titre">
+    <div class="modal-onboarding__carte">
+      <h2 id="modal-onboarding-titre">Expérience optimale sur iPhone</h2>
+      <p>Pour une expérience identique à une application native, installez KELEGANCE via&nbsp;:</p>
+      <p class="modal-onboarding__etape"><strong>Partager</strong> → <strong>Sur l'écran d'accueil</strong></p>
+      <button type="button" class="btn btn-primaire" id="btn-fermer-onboarding">Compris</button>
+    </div>
+  </div>
+
+  <aside id="pwa-banner" class="pwa-banner" aria-label="Installation iPhone" aria-hidden="true">
+    <div class="pwa-banner__inner">
+      <div class="pwa-banner__header">
+        <img class="pwa-banner__logo" src="/icons/Icon-512.png" width="40" height="40" alt="">
+        <p class="pwa-banner__title">Installer KELEGANCE<br><span style="font-size:0.75rem;color:var(--texte-discret);letter-spacing:0.08em;font-family:'DM Sans',sans-serif">Expérience premium · plein écran</span></p>
+        <button type="button" class="pwa-banner__close" id="pwa-banner-close" aria-label="Fermer">&times;</button>
+      </div>
+      <div class="pwa-banner__steps" id="pwa-banner-dots">
+        <span class="pwa-banner__dot actif"></span>
+        <span class="pwa-banner__dot"></span>
+        <span class="pwa-banner__dot"></span>
+        <span class="pwa-banner__dot"></span>
+      </div>
+      <div class="pwa-banner__body" id="pwa-banner-etapes">
+        <p class="pwa-banner__etape actif" data-etape="0">Ouvrez cette page dans <strong>Safari</strong> (recommandé pour l'installation).</p>
+        <p class="pwa-banner__etape" data-etape="1">Appuyez sur <span class="pwa-banner__share-hint" aria-hidden="true"><svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M12 3v12"/><path d="M8 7l4-4 4 4"/><path d="M5 14v5a2 2 0 002 2h10a2 2 0 002-2v-5"/></svg></span> <strong>Partager</strong> en bas de l'écran.</p>
+        <p class="pwa-banner__etape" data-etape="2">Faites défiler et choisissez <strong>Sur l'écran d'accueil</strong>.</p>
+        <p class="pwa-banner__etape" data-etape="3">Validez avec <strong>Ajouter</strong> — KELEGANCE s'ouvrira en plein écran, sans barre Safari.</p>
+      </div>
+      <div class="pwa-banner__nav">
+        <button type="button" id="pwa-banner-prev">Précédent</button>
+        <button type="button" class="primaire" id="pwa-banner-next">Suivant</button>
+      </div>
+    </div>
+  </aside>
+
+  <script src="/kelegance-version-check.js"></script>
+  <script type="module">
+    import { initReservationHub } from './reservation.js';
+    import { initOverlayDiscretion } from './overlay-discretion.js';
+
+    initOverlayDiscretion();
+
+    (function () {
+      var params = new URLSearchParams(window.location.search);
+      var profilUrl = params.get('profil');
+      if (profilUrl === 'bras_droit' || profilUrl === 'collaborateur') {
+        try { localStorage.setItem('kelegance_profil', profilUrl); } catch (e) {}
+      }
+
+      var ua = navigator.userAgent || '';
+      var isIOS = /iPad|iPhone|iPod/.test(ua) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+      var isAndroid = /Android/i.test(ua);
+      var isStandalone = window.matchMedia('(display-mode: standalone)').matches || window.navigator.standalone === true;
+
+      var zoneReservation = document.getElementById('zone-reservation');
+      var zoneEquipe = document.getElementById('zone-equipe');
+      var iosPanel = document.getElementById('ios-install');
+      var btnApk = document.getElementById('btn-apk');
+      var btnIosScroll = document.getElementById('btn-ios-scroll');
+      var btnConsole = document.getElementById('btn-console');
+      var btnEquipe = document.getElementById('btn-equipe');
+      var modalOnboarding = document.getElementById('modal-onboarding');
+      var btnFermerOnboarding = document.getElementById('btn-fermer-onboarding');
+
+      var profilActif = profilUrl;
+      if (!profilActif && isStandalone) {
+        try { profilActif = localStorage.getItem('kelegance_profil'); } catch (e) { profilActif = null; }
+      }
+
+      var estBrasDroit = profilActif === 'bras_droit';
+      var estCollaborateur = profilActif === 'collaborateur';
+      var estEquipe = estBrasDroit || estCollaborateur;
+
+      if (!estEquipe) {
+        initReservationHub();
+      } else {
+        zoneReservation.classList.add('masque');
+        zoneEquipe.classList.remove('masque');
+      }
+
+      btnApk.classList.add('masque');
+      btnConsole.classList.add('masque');
+      if (btnEquipe) btnEquipe.classList.add('masque');
+
+      if (estEquipe) {
+        var libelleConsole = estCollaborateur
+          ? 'Accéder à la console chauffeur'
+          : 'Ouvrir la console gestion';
+        btnConsole.textContent = libelleConsole;
+        btnConsole.href = estCollaborateur
+          ? '/chauffeur?role=driver'
+          : '/gestion?profil=bras_droit';
+        if (btnEquipe && estBrasDroit) {
+          btnEquipe.classList.remove('masque');
+        }
+      }
+
+      if (!estEquipe) {
+        iosPanel.classList.add('masque');
+      } else if (isIOS && !isStandalone) {
+        iosPanel.classList.add('visible');
+        btnIosScroll.classList.remove('masque');
+        btnConsole.classList.remove('masque');
+        btnIosScroll.addEventListener('click', function () {
+          iosPanel.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        });
+        initPwaBanner();
+        try {
+          if (!localStorage.getItem('kelegance_ios_onboarding_vu')) {
+            modalOnboarding.classList.remove('masque');
+          }
+        } catch (e) {}
+      } else if (isStandalone) {
+        if (estBrasDroit) {
+          btnConsole.classList.remove('masque');
+          window.location.replace('/gestion?profil=bras_droit');
+        } else if (estCollaborateur) {
+          btnConsole.classList.remove('masque');
+          window.location.replace('/chauffeur?role=driver');
+        }
+      } else if (isAndroid) {
+        btnApk.classList.remove('masque');
+        btnConsole.classList.remove('masque');
+      } else {
+        btnConsole.classList.remove('masque');
+      }
+
+      btnFermerOnboarding.addEventListener('click', function () {
+        modalOnboarding.classList.add('masque');
+        try { localStorage.setItem('kelegance_ios_onboarding_vu', '1'); } catch (e) {}
+      });
+
+      function initPwaBanner() {
+        var banner = document.getElementById('pwa-banner');
+        var closeBtn = document.getElementById('pwa-banner-close');
+        var prevBtn = document.getElementById('pwa-banner-prev');
+        var nextBtn = document.getElementById('pwa-banner-next');
+        var dots = document.querySelectorAll('#pwa-banner-dots .pwa-banner__dot');
+        var etapes = document.querySelectorAll('#pwa-banner-etapes .pwa-banner__etape');
+        var etapeCourante = 0;
+        var total = etapes.length;
+
+        try {
+          if (localStorage.getItem('kelegance_pwa_banner_ferme')) return;
+        } catch (e) {}
+
+        function afficherEtape(idx) {
+          etapeCourante = idx;
+          etapes.forEach(function (el, i) {
+            el.classList.toggle('actif', i === idx);
+          });
+          dots.forEach(function (el, i) {
+            el.classList.toggle('actif', i === idx);
+          });
+          prevBtn.style.visibility = idx === 0 ? 'hidden' : 'visible';
+          nextBtn.textContent = idx === total - 1 ? 'Compris' : 'Suivant';
+        }
+
+        setTimeout(function () {
+          banner.classList.add('visible');
+          banner.setAttribute('aria-hidden', 'false');
+        }, 1200);
+
+        prevBtn.addEventListener('click', function () {
+          if (etapeCourante > 0) afficherEtape(etapeCourante - 1);
+        });
+
+        nextBtn.addEventListener('click', function () {
+          if (etapeCourante < total - 1) {
+            afficherEtape(etapeCourante + 1);
+          } else {
+            banner.classList.remove('visible');
+            banner.setAttribute('aria-hidden', 'true');
+            try { localStorage.setItem('kelegance_pwa_banner_ferme', '1'); } catch (e) {}
+          }
+        });
+
+        closeBtn.addEventListener('click', function () {
+          banner.classList.remove('visible');
+          banner.setAttribute('aria-hidden', 'true');
+          try { localStorage.setItem('kelegance_pwa_banner_ferme', '1'); } catch (e) {}
+        });
+
+        afficherEtape(0);
+      }
+
+      if ('serviceWorker' in navigator) {
+        keleganceVerifierVersion(function () {
+          navigator.serviceWorker.register('/hub/sw.js', { scope: '/hub/' }).catch(function () {});
+        });
+      }
+    })();
+  </script>
+</body>
+</html>

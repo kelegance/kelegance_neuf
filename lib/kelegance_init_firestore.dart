@@ -4,6 +4,15 @@ import 'package:flutter/foundation.dart';
 /// E-mail super administrateur — bypass cercle privé + accès chauffeur (v2.3.0).
 abstract final class KeleganceProfilsBootstrap {
   static const String emailAdminNicolas = 'nicolas.nbchauffeurs@gmail.com';
+  static const String emailAdminDeborah = 'deborah.jetil@gmail.com';
+  static const String emailAdminLinel = 'linel.marcalexandrepro@gmail.com';
+
+  /// E-mails autorisés pour les outils admin (QR codes, etc.).
+  static const List<String> emailsAdmin = [
+    emailAdminNicolas,
+    emailAdminDeborah,
+    emailAdminLinel,
+  ];
 }
 
 /// Utilisateur officiel Kélégance — liste de départ v2.3.0.
@@ -39,6 +48,8 @@ class KeleganceUtilisateurOfficiel {
       'email': emailNormalise,
       'phone': phone,
       'role': role,
+      if (accesChauffeur && KeleganceProfilsBootstrap.emailsAdmin.contains(emailNormalise))
+        'niveauAcces': 'bras_droit',
       'isApproved': isApproved,
       if (bypassCerclePrive) 'bypassCerclePrive': true,
       if (accesChauffeur) 'accesChauffeur': true,
@@ -55,6 +66,7 @@ class KeleganceUtilisateurOfficiel {
       'email': emailNormalise,
       'phone': phone,
       'role': 'chauffeur',
+      if (KeleganceProfilsBootstrap.emailsAdmin.contains(emailNormalise)) 'niveauAcces': 'bras_droit',
       'isApproved': true,
       'bypassCerclePrive': true,
       'status': 'HORS_LIGNE',
@@ -80,7 +92,7 @@ abstract final class KeleganceListeOfficielleDepart {
     ),
     KeleganceUtilisateurOfficiel(
       name: 'Déborah Jetil',
-      email: 'deborahjetil@gmail.com',
+      email: 'deborah.jetil@gmail.com',
       phone: '06 65 58 73 60',
       role: 'chauffeur',
       bypassCerclePrive: true,

@@ -3,8 +3,11 @@ import { KELEGANCE_IDENTITE } from "../constants";
 export interface MissionData {
   statut?: string;
   type?: string;
+  source?: string;
   client?: string;
   email?: string;
+  phone?: string;
+  contactHub?: string;
   depart?: string;
   destination?: string;
   date?: string;

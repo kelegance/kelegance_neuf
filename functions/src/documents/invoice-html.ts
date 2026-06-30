@@ -19,6 +19,12 @@ function remplacerVariables(modele: string, d: DocumentDonnees): string {
     "{{tauxTva}}": "10",
     "{{prestation}}": echapperHtml(KELEGANCE_IDENTITE.prestationVtc),
     "{{exploitant}}": echapperHtml(KELEGANCE_IDENTITE.exploitant),
+    "{{raisonSociale}}": echapperHtml(KELEGANCE_IDENTITE.raisonSociale),
+    "{{siret}}": echapperHtml(KELEGANCE_IDENTITE.siret),
+    "{{adresseSiege}}": echapperHtml(KELEGANCE_IDENTITE.adresseSiege),
+    "{{numeroTva}}": echapperHtml(KELEGANCE_IDENTITE.numeroTva),
+    "{{codeApe}}": echapperHtml(KELEGANCE_IDENTITE.codeApe),
+    "{{conditionsReglement}}": echapperHtml(KELEGANCE_IDENTITE.conditionsReglement),
     "{{dateEmission}}": echapperHtml(d.dateEmission),
     "{{emailAdmin}}": echapperHtml(KELEGANCE_IDENTITE.emailAdmin),
     "{{whatsapp}}": echapperHtml(KELEGANCE_IDENTITE.whatsappPrestige),
@@ -34,24 +40,40 @@ function remplacerVariables(modele: string, d: DocumentDonnees): string {
   return html;
 }
 
+const BLOC_MENTIONS_LEGALES = `
+      <div class="mentions-legales">
+        <p class="section-title" style="margin-top:0">Mentions légales &amp; facturation</p>
+        <div class="grid">
+          <div class="field"><label>Raison sociale</label><span>{{raisonSociale}}</span></div>
+          <div class="field"><label>SIRET</label><span>{{siret}}</span></div>
+          <div class="field full"><label>Siège social</label><span>{{adresseSiege}}</span></div>
+          <div class="field"><label>TVA</label><span>{{numeroTva}}</span></div>
+          <div class="field"><label>Code APE / NAF</label><span>{{codeApe}}</span></div>
+          <div class="field full"><label>Conditions de règlement</label><span>{{conditionsReglement}}</span></div>
+        </div>
+      </div>`;
+
 function enveloppeHtml(titrePage: string, corps: string): string {
   return `<!DOCTYPE html>
 <html lang="fr">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+  <meta name="theme-color" content="#0B1426">
   <title>${echapperHtml(titrePage)} — KELEGANCE PRESTIGE</title>
   <style>
     * { box-sizing: border-box; margin: 0; padding: 0; }
+    html { -webkit-text-size-adjust: 100%; }
     body {
       font-family: 'Segoe UI', 'Helvetica Neue', Arial, sans-serif;
       background: #0B1426;
       color: #F5F0E6;
-      line-height: 1.5;
-      padding: 24px;
+      line-height: 1.55;
+      padding: max(16px, env(safe-area-inset-top)) 16px max(24px, env(safe-area-inset-bottom));
+      min-height: 100vh;
     }
     .document {
-      max-width: 720px;
+      max-width: 760px;
       margin: 0 auto;
       background: linear-gradient(145deg, #121E33 0%, #0B1426 100%);
       border: 1px solid #D4AF37;
@@ -60,15 +82,16 @@ function enveloppeHtml(titrePage: string, corps: string): string {
       box-shadow: 0 8px 32px rgba(0,0,0,0.45);
     }
     .header {
-      padding: 28px 32px 20px;
+      padding: 24px 24px 18px;
       border-bottom: 1px solid rgba(212,175,55,0.45);
       display: flex;
       justify-content: space-between;
       align-items: flex-start;
       gap: 16px;
+      flex-wrap: wrap;
     }
     .brand h1 {
-      font-size: 22px;
+      font-size: clamp(18px, 4.5vw, 22px);
       font-weight: 300;
       letter-spacing: 3px;
       color: #D4AF37;
@@ -77,7 +100,7 @@ function enveloppeHtml(titrePage: string, corps: string): string {
     .brand p { font-size: 11px; color: rgba(245,240,230,0.55); margin-top: 4px; letter-spacing: 1px; }
     .doc-ref { text-align: right; font-size: 11px; color: rgba(245,240,230,0.65); }
     .doc-ref strong { color: #D4AF37; display: block; font-size: 13px; margin-bottom: 4px; }
-    .content { padding: 24px 32px 32px; }
+    .content { padding: 20px 24px 28px; }
     .legal {
       font-size: 10px; font-style: italic; color: rgba(245,240,230,0.45);
       margin-bottom: 18px; padding-bottom: 14px;
@@ -87,27 +110,34 @@ function enveloppeHtml(titrePage: string, corps: string): string {
       font-size: 11px; letter-spacing: 2px; text-transform: uppercase;
       color: #D4AF37; margin: 18px 0 10px; font-weight: 600;
     }
-    .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px 24px; }
+    .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px 20px; }
     .field label {
       display: block; font-size: 9px; letter-spacing: 1.2px; text-transform: uppercase;
       color: rgba(245,240,230,0.45); margin-bottom: 2px;
     }
-    .field span { font-size: 13px; color: #F5F0E6; }
+    .field span { font-size: 13px; color: #F5F0E6; word-break: break-word; }
     .field.full { grid-column: 1 / -1; }
-    table.facture { width: 100%; border-collapse: collapse; margin-top: 12px; font-size: 12px; }
+    .table-wrap { overflow-x: auto; margin-top: 12px; -webkit-overflow-scrolling: touch; }
+    table.facture { width: 100%; min-width: 520px; border-collapse: collapse; font-size: 12px; }
     table.facture th {
       text-align: left; padding: 8px 10px; background: rgba(212,175,55,0.12);
       color: #D4AF37; font-size: 10px; letter-spacing: 1px; text-transform: uppercase;
     }
-    table.facture td { padding: 10px; border-bottom: 1px solid rgba(245,240,230,0.08); }
+    table.facture td { padding: 10px; border-bottom: 1px solid rgba(245,240,230,0.08); vertical-align: top; }
     table.facture tr.total td { font-weight: 700; color: #D4AF37; border-bottom: none; font-size: 14px; }
     .attestation {
       margin-top: 20px; padding: 12px 16px; background: rgba(255,255,255,0.04);
       border-radius: 8px; border-left: 3px solid #D4AF37;
-      font-size: 11px; color: rgba(245,240,230,0.75);
+      font-size: 11px; color: rgba(245,240,230,0.75); line-height: 1.5;
     }
+    .mentions-legales {
+      margin-top: 22px; padding: 14px 16px;
+      background: rgba(212,175,55,0.06); border: 1px solid rgba(212,175,55,0.22);
+      border-radius: 8px;
+    }
+    .mentions-legales .field span { font-size: 12px; }
     .footer {
-      padding: 18px 32px; background: rgba(0,0,0,0.25);
+      padding: 16px 24px; background: rgba(0,0,0,0.25);
       border-top: 1px solid rgba(212,175,55,0.25);
       display: flex; justify-content: space-between; align-items: center;
       flex-wrap: wrap; gap: 10px; font-size: 11px; color: rgba(245,240,230,0.55);
@@ -115,20 +145,22 @@ function enveloppeHtml(titrePage: string, corps: string): string {
     .footer a { color: #D4AF37; text-decoration: none; }
     .footer .contact { display: flex; gap: 18px; flex-wrap: wrap; }
     .tarif-box {
-      margin-top: 20px; padding: 16px 20px; text-align: center;
-      background: rgba(212,175,55,0.1); border: 1px solid rgba(212,175,55,0.4);
-      border-radius: 8px;
+      margin-top: 20px; padding: 16px 20px;
+      background: rgba(212,175,55,0.08); border: 1px solid rgba(212,175,55,0.35);
+      border-radius: 8px; display: flex; justify-content: space-between;
+      align-items: center; flex-wrap: wrap; gap: 8px;
     }
-    .tarif-box .libelle {
-      font-size: 10px; letter-spacing: 1.5px; text-transform: uppercase;
-      color: rgba(245,240,230,0.55);
-    }
+    .tarif-box .libelle { font-size: 12px; color: rgba(245,240,230,0.7); }
     .tarif-box .montant {
-      font-size: 28px; font-weight: 300; color: #D4AF37; margin-top: 6px;
+      font-size: clamp(22px, 5vw, 26px); font-weight: 600; color: #D4AF37;
     }
-    @media print {
-      body { padding: 0; background: #0B1426; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
-      .document { box-shadow: none; border-radius: 0; max-width: none; }
+    @media (max-width: 600px) {
+      body { padding: 12px; }
+      .content { padding: 16px 16px 22px; }
+      .header { padding: 18px 16px 14px; }
+      .grid { grid-template-columns: 1fr; }
+      .doc-ref { text-align: left; width: 100%; }
+      .tarif-box { flex-direction: column; align-items: flex-start; }
     }
   </style>
 </head>
@@ -141,8 +173,8 @@ function enveloppeHtml(titrePage: string, corps: string): string {
 const MODELE_FACTURE = `
     <div class="header">
       <div class="brand">
-        <h1>Kelegance Prestige</h1>
-        <p>Facturation transport VTC</p>
+        <h1>{{raisonSociale}}</h1>
+        <p>Facturation électronique — transport VTC</p>
       </div>
       <div class="doc-ref">
         <strong>FACTURE TTC</strong>
@@ -154,7 +186,7 @@ const MODELE_FACTURE = `
       <p class="legal">{{articleLegal}}</p>
       <p class="section-title">Émetteur</p>
       <div class="grid">
-        <div class="field"><label>Exploitant</label><span>{{exploitant}}</span></div>
+        <div class="field"><label>Exploitant</label><span>{{raisonSociale}}</span></div>
         <div class="field"><label>E-mail</label><span>{{emailAdmin}}</span></div>
         <div class="field"><label>WhatsApp Pro</label><span><a href="{{whatsappLien}}" style="color:#D4AF37">{{whatsapp}}</a></span></div>
       </div>
@@ -164,6 +196,7 @@ const MODELE_FACTURE = `
         <div class="field"><label>E-mail</label><span>{{email}}</span></div>
       </div>
       <p class="section-title">Détail de la prestation</p>
+      <div class="table-wrap">
       <table class="facture">
         <thead>
           <tr>
@@ -190,13 +223,16 @@ const MODELE_FACTURE = `
           </tr>
         </tbody>
       </table>
+      </div>
       <div class="attestation">
         Facture acquittée — prestation réalisée le {{date}} à {{heure}}.
-        Passagers : {{passagers}}. Paiement enregistré via Kélégance Prestige.
+        Passagers : {{passagers}}. TVA au taux de {{tauxTva}} % applicable aux transports de personnes.
+        Paiement enregistré via Kélégance Prestige.
       </div>
+      ${BLOC_MENTIONS_LEGALES}
     </div>
     <div class="footer">
-      <span>Réf. mission {{token}}</span>
+      <span>Facture électronique — réf. {{token}}</span>
       <div class="contact">
         <a href="mailto:{{emailAdmin}}">{{emailAdmin}}</a>
         <a href="{{whatsappLien}}">WhatsApp {{whatsapp}}</a>
@@ -211,7 +247,7 @@ export function genererHtmlFacture(donnees: DocumentDonnees): string {
 const MODELE_BON_COMMANDE = `
     <div class="header">
       <div class="brand">
-        <h1>Kelegance Prestige</h1>
+        <h1>{{raisonSociale}}</h1>
         <p>Chauffeur privé &amp; VTC premium</p>
       </div>
       <div class="doc-ref">
@@ -224,7 +260,7 @@ const MODELE_BON_COMMANDE = `
       <p class="legal">{{articleLegal}}</p>
       <p class="section-title">Exploitant</p>
       <div class="grid">
-        <div class="field"><label>Raison sociale</label><span>{{exploitant}}</span></div>
+        <div class="field"><label>Raison sociale</label><span>{{raisonSociale}}</span></div>
         <div class="field"><label>Contact</label><span>{{emailAdmin}}</span></div>
         <div class="field"><label>WhatsApp Pro</label><span><a href="{{whatsappLien}}" style="color:#D4AF37">{{whatsapp}}</a></span></div>
       </div>
@@ -248,9 +284,10 @@ const MODELE_BON_COMMANDE = `
         Ce document atteste d'une réservation préalable effectuée par le client conformément
         à la réglementation VTC en vigueur. Le tarif affiché est définitif et sans supplément caché.
       </div>
+      ${BLOC_MENTIONS_LEGALES}
     </div>
     <div class="footer">
-      <span>Token sécurisé : {{token}}</span>
+      <span>Document électronique — token {{token}}</span>
       <div class="contact">
         <a href="mailto:{{emailAdmin}}">{{emailAdmin}}</a>
         <a href="{{whatsappLien}}">WhatsApp {{whatsapp}}</a>

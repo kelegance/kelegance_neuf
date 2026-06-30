@@ -7,7 +7,7 @@
  *   - Site lié (.netlify/state.json) ou NETLIFY_SITE_ID / --site
  */
 import { spawnSync } from 'node:child_process';
-import { existsSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 
 const root = process.cwd();
@@ -20,6 +20,17 @@ const webOrigin =
 const googleMapsKey =
   process.env.GOOGLE_MAPS_API_KEY || 'AIzaSyCM_g7NBu0L8WZDi8SuJTyt2wiilbCvfmI';
 const netlifySite = process.env.NETLIFY_SITE_ID || 'cheerful-salamander-565dfc';
+
+function lireSiteIdLie() {
+  const stateFile = join(root, '.netlify', 'state.json');
+  if (!existsSync(stateFile)) return netlifySite;
+  try {
+    const state = JSON.parse(readFileSync(stateFile, 'utf8'));
+    return state.siteId || netlifySite;
+  } catch {
+    return netlifySite;
+  }
+}
 
 function run(command, args, label, env = process.env) {
   console.log(`\n▶ ${label}`);
@@ -54,7 +65,7 @@ if (skipBuild) {
     ],
     'flutter build web --release',
   );
-  run('node', ['scripts/strip-service-worker.mjs'], 'Désactivation service worker');
+  run('node', ['scripts/prepare-web-build.mjs'], 'Préparation PWA (version + service worker)');
 }
 
 if (!existsSync(buildDir)) {
@@ -62,7 +73,7 @@ if (!existsSync(buildDir)) {
   process.exit(1);
 }
 
-run('node', ['scripts/verify-web-build.mjs'], 'Vérification build sans SW');
+run('node', ['scripts/verify-web-build.mjs'], 'Vérification build PWA');
 
 const netlifyBin =
   process.platform === 'win32'
@@ -70,7 +81,12 @@ const netlifyBin =
     : join(root, 'node_modules', '.bin', 'netlify');
 
 if (existsSync(netlifyBin)) {
-  run(netlifyBin, ['deploy', '--prod', '--dir=build/web', `--site=${netlifySite}`], 'netlify deploy --prod');
+  const siteId = lireSiteIdLie();
+  run(
+    netlifyBin,
+    ['deploy', '--prod', '--dir=build/web', '--no-build', `--site=${siteId}`],
+    'netlify deploy --prod',
+  );
 } else if (process.env.NETLIFY_AUTH_TOKEN) {
   run('node', ['scripts/netlify-deploy-zip.mjs'], 'Déploiement Netlify via API (zip)');
 } else {

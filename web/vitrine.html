@@ -1,0 +1,239 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+  <meta name="description" content="Kélégance — Transferts premium vers les aéroports et gares. Téléchargez l'application Android.">
+  <meta name="theme-color" content="#0A0A0A">
+  <meta name="robots" content="index, follow">
+  <title>Kélégance — Application mobile</title>
+  <link rel="icon" type="image/png" href="favicon.png">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;0,400;0,500;1,300&family=DM+Sans:ital,opsz,wght@0,9..40,300;0,9..40,400;0,9..40,500;1,9..40,300&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --noir: #0A0A0A;
+      --anthracite: #141414;
+      --or: #D4AF37;
+      --or-doux: rgba(212, 175, 55, 0.72);
+      --texte: #D4AF37;
+      --texte-discret: rgba(212, 175, 55, 0.58);
+    }
+
+    *, *::before, *::after { box-sizing: border-box; }
+
+    html, body {
+      margin: 0;
+      min-height: 100%;
+      background: var(--noir);
+      color: var(--texte);
+      font-family: 'DM Sans', system-ui, sans-serif;
+      font-weight: 300;
+      -webkit-font-smoothing: antialiased;
+    }
+
+    body {
+      display: flex;
+      flex-direction: column;
+      min-height: 100vh;
+      min-height: 100dvh;
+    }
+
+    .fond {
+      position: fixed;
+      inset: 0;
+      pointer-events: none;
+      background:
+        radial-gradient(ellipse 80% 50% at 50% -10%, rgba(212, 175, 55, 0.08), transparent 55%),
+        radial-gradient(ellipse 60% 40% at 50% 110%, rgba(212, 175, 55, 0.04), transparent 50%),
+        var(--noir);
+    }
+
+    main {
+      position: relative;
+      z-index: 1;
+      flex: 1;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: max(28px, env(safe-area-inset-top)) 24px max(28px, env(safe-area-inset-bottom));
+    }
+
+    .contenu {
+      width: 100%;
+      max-width: 420px;
+      text-align: center;
+    }
+
+    .logo {
+      width: 88px;
+      height: 88px;
+      margin: 0 auto 28px;
+      border-radius: 50%;
+      border: 1px solid rgba(212, 175, 55, 0.35);
+      padding: 6px;
+      background: var(--anthracite);
+      object-fit: contain;
+    }
+
+    .marque {
+      font-family: 'Cormorant Garamond', Georgia, serif;
+      font-size: clamp(1.85rem, 6vw, 2.25rem);
+      font-weight: 400;
+      letter-spacing: 0.22em;
+      text-indent: 0.22em;
+      color: var(--or);
+      margin: 0 0 12px;
+    }
+
+    .version {
+      font-size: 0.75rem;
+      letter-spacing: 0.14em;
+      text-transform: uppercase;
+      color: var(--texte-discret);
+      margin: 0 0 32px;
+      min-height: 1.2em;
+    }
+
+    .accroche {
+      font-family: 'Cormorant Garamond', Georgia, serif;
+      font-size: clamp(1.15rem, 4vw, 1.4rem);
+      font-weight: 300;
+      line-height: 1.5;
+      color: var(--or-doux);
+      margin: 0 0 36px;
+    }
+
+    .actions {
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+    }
+
+    .btn {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 10px;
+      width: 100%;
+      padding: 15px 20px;
+      border-radius: 2px;
+      font-family: inherit;
+      font-size: 0.88rem;
+      font-weight: 400;
+      letter-spacing: 0.06em;
+      text-decoration: none;
+      transition: background 0.2s, border-color 0.2s, transform 0.15s;
+      cursor: pointer;
+    }
+
+    .btn svg {
+      width: 20px;
+      height: 20px;
+      flex-shrink: 0;
+    }
+
+    .btn-primaire {
+      background: linear-gradient(135deg, rgba(212, 175, 55, 0.2), rgba(212, 175, 55, 0.08));
+      border: 1px solid var(--or-doux);
+      color: var(--or);
+    }
+
+    .btn-primaire:hover {
+      background: linear-gradient(135deg, rgba(212, 175, 55, 0.32), rgba(212, 175, 55, 0.14));
+      transform: translateY(-1px);
+    }
+
+    .btn-ios {
+      background: var(--anthracite);
+      border: 1px solid rgba(212, 175, 55, 0.2);
+      color: var(--texte-discret);
+      cursor: default;
+      pointer-events: none;
+    }
+
+    .badge-bientot {
+      display: inline-block;
+      margin-left: 6px;
+      padding: 2px 8px;
+      border-radius: 2px;
+      font-size: 0.68rem;
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+      background: rgba(212, 175, 55, 0.1);
+      border: 1px solid rgba(212, 175, 55, 0.25);
+      color: var(--or-doux);
+      vertical-align: middle;
+    }
+
+    footer {
+      position: relative;
+      z-index: 1;
+      padding: 20px 24px max(20px, env(safe-area-inset-bottom));
+      text-align: center;
+      font-size: 0.75rem;
+      letter-spacing: 0.06em;
+      color: rgba(212, 175, 55, 0.35);
+    }
+  </style>
+</head>
+<body data-kelegance-vitrine="1">
+  <div class="fond" aria-hidden="true"></div>
+
+  <main>
+    <div class="contenu">
+      <img class="logo" src="icons/Icon-512.png" width="88" height="88" alt="">
+      <h1 class="marque">Kélégance</h1>
+      <p class="version" id="version-label" aria-live="polite"></p>
+
+      <p class="accroche">
+        Votre partenaire privilégié pour vos transferts vers les aéroports et les gares.
+      </p>
+
+      <div class="actions">
+        <a class="btn btn-primaire" id="btn-android" href="/releases/kelegance-latest.apk" download>
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true">
+            <path d="M12 3v12m0 0l4-4m-4 4L8 11M4 17v2a2 2 0 002 2h12a2 2 0 002-2v-2"/>
+          </svg>
+          Télécharger l'application Android
+        </a>
+
+        <div class="btn btn-ios" role="status" aria-label="Version iPhone bientôt disponible">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true">
+            <rect x="7" y="2" width="10" height="20" rx="2"/>
+            <path d="M11 5h2"/>
+          </svg>
+          Version iPhone
+          <span class="badge-bientot">Bientôt disponible</span>
+        </div>
+      </div>
+    </div>
+  </main>
+
+  <footer>
+    <p>Kélégance — L'excellence au service de vos départs et arrivées.</p>
+  </footer>
+
+  <script>
+    (function () {
+      var btn = document.getElementById('btn-android');
+      var versionLabel = document.getElementById('version-label');
+
+      fetch('/releases/android-latest.json', { cache: 'no-store' })
+        .then(function (r) { return r.ok ? r.json() : null; })
+        .then(function (m) {
+          if (!m) return;
+          if (m.apkUrl) {
+            try {
+              var chemin = new URL(m.apkUrl, window.location.origin).pathname;
+              btn.href = chemin;
+            } catch (e) {}
+          }
+          if (m.version) versionLabel.textContent = 'Version ' + m.version;
+        })
+        .catch(function () {});
+    })();
+  </script>
+</body>
+</html>

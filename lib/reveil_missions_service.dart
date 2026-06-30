@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
@@ -5,16 +6,59 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:flutter_timezone/flutter_timezone.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+
+import 'kelegance_missions_service.dart';
 import 'package:timezone/data/latest_all.dart' as tz_data;
 import 'package:timezone/timezone.dart' as tz;
 
+/// Handler arrière-plan (top-level requis par flutter_local_notifications).
+@pragma('vm:entry-point')
+void keleganceReveilNotificationTapBackground(NotificationResponse response) {
+  KeleganceReveilMissions.onNotificationTapped(response);
+}
+
 /// Alertes réveil 5h00 (Europe/Paris) — courses planifiées v2.1.2.
+///
+/// Service **isolé** de l'UI console : planification OS via [zonedSchedule],
+/// sans `showDialog`, sans `Navigator`, sans dépendance au Stack guidage.
 abstract final class KeleganceReveilMissions {
   static const String fuseauParis = 'Europe/Paris';
   static const String _prefsKey = 'kelegance_reveils_planifies_v212';
 
   static final FlutterLocalNotificationsPlugin _plugin = FlutterLocalNotificationsPlugin();
   static bool _pret = false;
+  static StreamSubscription<KeleganceMissionsSnapshot>? _abonnementMissions;
+
+  /// Écoute le flux missions partagé — indépendante du cycle de vie de [PageConsole] / Stack UI.
+  static Future<void> demarrerSynchronisationFirestore() async {
+    if (_abonnementMissions != null) return;
+    await initialiser();
+    KeleganceMissionsService.demarrer();
+    _abonnementMissions = KeleganceMissionsService.flux.listen(
+      (snapshot) => unawaited(synchroniserDepuisMissions(snapshot.docs)),
+      onError: (e) {
+        if (kDebugMode) debugPrint('Kelegance sync réveils 5h: $e');
+      },
+    );
+    if (kDebugMode) {
+      debugPrint('Kelegance Réveil 5h — écoute live missions active');
+    }
+  }
+
+  static Future<void> arreterSynchronisationFirestore() async {
+    await _abonnementMissions?.cancel();
+    _abonnementMissions = null;
+  }
+
+  /// Tap sur notification réveil — son/vibration système seulement, pas d'UI in-app.
+  static void onNotificationTapped(NotificationResponse response) {
+    if (kDebugMode) {
+      debugPrint(
+        'Kelegance Réveil 5h — notification [${response.payload}] '
+        '(aucune navigation externe, aucune modale)',
+      );
+    }
+  }
 
   static Future<void> initialiser() async {
     if (_pret) return;
@@ -35,6 +79,9 @@ abstract final class KeleganceReveilMissions {
     );
     await _plugin.initialize(
       settings: const InitializationSettings(android: android, iOS: ios),
+      // Réveil 5h : notification système uniquement — jamais de navigation ni modale UI.
+      onDidReceiveNotificationResponse: onNotificationTapped,
+      onDidReceiveBackgroundNotificationResponse: keleganceReveilNotificationTapBackground,
     );
 
     final androidImpl = _plugin.resolvePlatformSpecificImplementation<AndroidFlutterLocalNotificationsPlugin>();

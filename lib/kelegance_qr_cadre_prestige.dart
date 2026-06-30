@@ -18,19 +18,19 @@ class KeleganceQrCadrePrestige extends StatelessWidget {
   const KeleganceQrCadrePrestige({
     super.key,
     required this.type,
-    required this.url,
-    this.logo,
     this.compact = false,
   });
 
   final KeleganceQrType type;
-  final String url;
-  final ImageProvider? logo;
   final bool compact;
 
+  /// Payload unique — toujours [KeleganceQrCodes.donneesQr], jamais un lien externe.
+  String get _payloadHub => KeleganceQrCodes.donneesQr(type);
+
   String get _sousTitre => switch (type) {
-        KeleganceQrType.client => 'Réservation VTC',
-        KeleganceQrType.brasDroit => 'Console professionnelle',
+        KeleganceQrType.client => 'Hub Client',
+        KeleganceQrType.brasDroit => 'Admin complet · APK / PWA',
+        KeleganceQrType.collaborateur => 'Interface restreinte · APK / PWA',
       };
 
   @override
@@ -75,18 +75,14 @@ class KeleganceQrCadrePrestige extends StatelessWidget {
               border: Border.all(color: KeleganceQrTheme.or.withOpacity(0.25)),
             ),
             child: QrImageView(
-              data: url,
+              data: _payloadHub,
               size: qrSize,
+              padding: const EdgeInsets.all(16),
               backgroundColor: Colors.white,
+              errorCorrectionLevel: KeleganceQrCodes.niveauCorrectionErreur,
+              gapless: false,
               eyeStyle: KeleganceQrCodes.styleYeux,
               dataModuleStyle: KeleganceQrCodes.styleModules,
-              embeddedImage: logo,
-              embeddedImageStyle: QrEmbeddedImageStyle(
-                size: Size(
-                  qrSize * 0.22,
-                  qrSize * 0.22,
-                ),
-              ),
             ),
           ),
           SizedBox(height: compact ? 12 : 16),
@@ -118,8 +114,10 @@ class KeleganceQrCadrePrestige extends StatelessWidget {
               border: Border.all(color: KeleganceQrTheme.or.withOpacity(0.2)),
             ),
             child: Text(
-              Uri.parse(url).path,
+              _payloadHub,
               textAlign: TextAlign.center,
+              maxLines: 3,
+              overflow: TextOverflow.ellipsis,
               style: TextStyle(
                 color: KeleganceQrTheme.textePrincipal.withOpacity(0.8),
                 fontSize: compact ? 9 : 10,

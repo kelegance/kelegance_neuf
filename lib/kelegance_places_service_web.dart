@@ -11,12 +11,18 @@ Future<List<String>> rechercherSuggestionsPlateforme(String input) async {
       [query],
     );
     final raw = await js_util.promiseToFuture<Object?>(promise);
-    if (raw is! List) return const [];
+    if (raw == null) return const [];
 
-    return raw
+    final list = js_util.dartify(raw);
+    if (list is! List) return const [];
+
+    return list
         .map((e) {
-          if (e is Map) return e['description']?.toString() ?? '';
-          return e.toString();
+          if (e is Map) {
+            final description = e['description'];
+            if (description != null) return description.toString();
+          }
+          return '';
         })
         .where((s) => s.isNotEmpty)
         .take(6)

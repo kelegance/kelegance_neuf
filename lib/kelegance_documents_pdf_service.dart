@@ -1,9 +1,6 @@
 import 'dart:convert';
 
-import 'package:pdf/pdf.dart';
-import 'package:pdf/widgets.dart' as pw;
-
-/// Données réservation extraites d'une mission Firestore — injectées dans HTML / PDF.
+/// Données réservation extraites d'une mission Firestore — injectées dans le document web.
 class KeleganceDocumentDonnees {
   const KeleganceDocumentDonnees({
     required this.type,
@@ -110,7 +107,7 @@ class KeleganceDocumentDonnees {
   String get tvaFormate => '${tva.toStringAsFixed(2)} €';
 }
 
-/// Génération HTML & PDF — charte KELEGANCE (minuit bleu / or premium).
+/// Génération HTML — charte KELEGANCE (bleu nuit / or), facturation 100 % électronique.
 abstract final class KeleganceDocumentsPdfService {
   static const String emailAdmin = KeleganceIdentiteDocuments.emailAdmin;
   static const String whatsappPrestige = KeleganceIdentiteDocuments.whatsappPrestige;
@@ -133,48 +130,6 @@ abstract final class KeleganceDocumentsPdfService {
     return _enveloppeHtml(donnees.titre.toUpperCase(), corps);
   }
 
-  static Future<List<int>> genererPdf({
-    required String type,
-    required KeleganceDocumentDonnees donnees,
-  }) async {
-    final doc = pw.Document();
-    final couleurOr = PdfColor.fromHex(_couleurOr);
-    final couleurTexte = PdfColor.fromHex(_couleurTexte);
-
-    doc.addPage(
-      pw.Page(
-        pageFormat: PdfPageFormat.a4,
-        margin: const pw.EdgeInsets.all(36),
-        build: (context) {
-          return pw.Container(
-            decoration: pw.BoxDecoration(
-              border: pw.Border.all(color: couleurOr, width: 1.2),
-              borderRadius: pw.BorderRadius.circular(8),
-            ),
-            padding: const pw.EdgeInsets.all(24),
-            child: pw.Column(
-              crossAxisAlignment: pw.CrossAxisAlignment.stretch,
-              children: [
-                _pdfEntete(donnees, couleurOr, couleurTexte),
-                pw.SizedBox(height: 18),
-                pw.Divider(color: couleurOr, thickness: 0.8),
-                pw.SizedBox(height: 14),
-                if (type == 'FACTURE TTC')
-                  ..._pdfCorpsFacture(donnees, couleurOr, couleurTexte)
-                else
-                  ..._pdfCorpsBonCommande(donnees, couleurOr, couleurTexte),
-                pw.Spacer(),
-                _pdfPiedDePage(couleurOr, couleurTexte),
-              ],
-            ),
-          );
-        },
-      ),
-    );
-
-    return doc.save();
-  }
-
   static Map<String, String> variablesHtml(KeleganceDocumentDonnees d) => {
         '{{titre}}': _echapper(d.titre.toUpperCase()),
         '{{numeroDocument}}': _echapper(d.numeroDocument),
@@ -192,6 +147,12 @@ abstract final class KeleganceDocumentsPdfService {
         '{{tauxTva}}': '10',
         '{{prestation}}': _echapper(KeleganceIdentiteDocuments.prestationVtc),
         '{{exploitant}}': _echapper(KeleganceIdentiteDocuments.exploitant),
+        '{{raisonSociale}}': _echapper(KeleganceIdentiteDocuments.raisonSociale),
+        '{{siret}}': _echapper(KeleganceIdentiteDocuments.siret),
+        '{{adresseSiege}}': _echapper(KeleganceIdentiteDocuments.adresseSiege),
+        '{{numeroTva}}': _echapper(KeleganceIdentiteDocuments.numeroTva),
+        '{{codeApe}}': _echapper(KeleganceIdentiteDocuments.codeApe),
+        '{{conditionsReglement}}': _echapper(KeleganceIdentiteDocuments.conditionsReglement),
         '{{dateEmission}}': _echapper(d.dateEmission),
         '{{emailAdmin}}': _echapper(emailAdmin),
         '{{whatsapp}}': _echapper(whatsappPrestige),
@@ -208,24 +169,40 @@ abstract final class KeleganceDocumentsPdfService {
     return html;
   }
 
+  static String _blocMentionsLegales() => '''
+      <div class="mentions-legales">
+        <p class="section-title" style="margin-top:0">Mentions légales &amp; facturation</p>
+        <div class="grid">
+          <div class="field"><label>Raison sociale</label><span>{{raisonSociale}}</span></div>
+          <div class="field"><label>SIRET</label><span>{{siret}}</span></div>
+          <div class="field full"><label>Siège social</label><span>{{adresseSiege}}</span></div>
+          <div class="field"><label>TVA</label><span>{{numeroTva}}</span></div>
+          <div class="field"><label>Code APE / NAF</label><span>{{codeApe}}</span></div>
+          <div class="field full"><label>Conditions de règlement</label><span>{{conditionsReglement}}</span></div>
+        </div>
+      </div>''';
+
   static String _enveloppeHtml(String titrePage, String corps) => '''
 <!DOCTYPE html>
 <html lang="fr">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+  <meta name="theme-color" content="$_couleurFond">
   <title>$titrePage — KELEGANCE PRESTIGE</title>
   <style>
     * { box-sizing: border-box; margin: 0; padding: 0; }
+    html { -webkit-text-size-adjust: 100%; }
     body {
       font-family: 'Segoe UI', 'Helvetica Neue', Arial, sans-serif;
       background: $_couleurFond;
       color: $_couleurTexte;
-      line-height: 1.5;
-      padding: 24px;
+      line-height: 1.55;
+      padding: max(16px, env(safe-area-inset-top)) 16px max(24px, env(safe-area-inset-bottom));
+      min-height: 100vh;
     }
     .document {
-      max-width: 720px;
+      max-width: 760px;
       margin: 0 auto;
       background: linear-gradient(145deg, $_couleurFondClair 0%, $_couleurFond 100%);
       border: 1px solid $_couleurOr;
@@ -234,15 +211,16 @@ abstract final class KeleganceDocumentsPdfService {
       box-shadow: 0 8px 32px rgba(0,0,0,0.45);
     }
     .header {
-      padding: 28px 32px 20px;
+      padding: 24px 24px 18px;
       border-bottom: 1px solid rgba(212,175,55,0.45);
       display: flex;
       justify-content: space-between;
       align-items: flex-start;
       gap: 16px;
+      flex-wrap: wrap;
     }
     .brand h1 {
-      font-size: 22px;
+      font-size: clamp(18px, 4.5vw, 22px);
       font-weight: 300;
       letter-spacing: 3px;
       color: $_couleurOr;
@@ -259,8 +237,13 @@ abstract final class KeleganceDocumentsPdfService {
       font-size: 11px;
       color: rgba(245,240,230,0.65);
     }
-    .doc-ref strong { color: $_couleurOr; display: block; font-size: 13px; margin-bottom: 4px; }
-    .content { padding: 24px 32px 32px; }
+    .doc-ref strong {
+      color: $_couleurOr;
+      display: block;
+      font-size: 13px;
+      margin-bottom: 4px;
+    }
+    .content { padding: 20px 24px 28px; }
     .legal {
       font-size: 10px;
       font-style: italic;
@@ -280,7 +263,7 @@ abstract final class KeleganceDocumentsPdfService {
     .grid {
       display: grid;
       grid-template-columns: 1fr 1fr;
-      gap: 10px 24px;
+      gap: 10px 20px;
     }
     .field label {
       display: block;
@@ -293,6 +276,7 @@ abstract final class KeleganceDocumentsPdfService {
     .field span {
       font-size: 13px;
       color: $_couleurTexte;
+      word-break: break-word;
     }
     .field.full { grid-column: 1 / -1; }
     .tarif-box {
@@ -304,18 +288,21 @@ abstract final class KeleganceDocumentsPdfService {
       display: flex;
       justify-content: space-between;
       align-items: center;
+      flex-wrap: wrap;
+      gap: 8px;
     }
     .tarif-box .montant {
-      font-size: 26px;
+      font-size: clamp(22px, 5vw, 26px);
       font-weight: 600;
       color: $_couleurOr;
       letter-spacing: 0.5px;
     }
     .tarif-box .libelle { font-size: 12px; color: rgba(245,240,230,0.7); }
+    .table-wrap { overflow-x: auto; margin-top: 12px; -webkit-overflow-scrolling: touch; }
     table.facture {
       width: 100%;
+      min-width: 520px;
       border-collapse: collapse;
-      margin-top: 12px;
       font-size: 12px;
     }
     table.facture th {
@@ -330,6 +317,7 @@ abstract final class KeleganceDocumentsPdfService {
     table.facture td {
       padding: 10px;
       border-bottom: 1px solid rgba(245,240,230,0.08);
+      vertical-align: top;
     }
     table.facture tr.total td {
       font-weight: 700;
@@ -345,9 +333,18 @@ abstract final class KeleganceDocumentsPdfService {
       border-left: 3px solid $_couleurOr;
       font-size: 11px;
       color: rgba(245,240,230,0.75);
+      line-height: 1.5;
     }
+    .mentions-legales {
+      margin-top: 22px;
+      padding: 14px 16px;
+      background: rgba(212,175,55,0.06);
+      border: 1px solid rgba(212,175,55,0.22);
+      border-radius: 8px;
+    }
+    .mentions-legales .field span { font-size: 12px; }
     .footer {
-      padding: 18px 32px;
+      padding: 16px 24px;
       background: rgba(0,0,0,0.25);
       border-top: 1px solid rgba(212,175,55,0.25);
       display: flex;
@@ -358,14 +355,15 @@ abstract final class KeleganceDocumentsPdfService {
       font-size: 11px;
       color: rgba(245,240,230,0.55);
     }
-    .footer a {
-      color: $_couleurOr;
-      text-decoration: none;
-    }
+    .footer a { color: $_couleurOr; text-decoration: none; }
     .footer .contact { display: flex; gap: 18px; flex-wrap: wrap; }
-    @media print {
-      body { background: white; padding: 0; }
-      .document { box-shadow: none; border-radius: 0; }
+    @media (max-width: 600px) {
+      body { padding: 12px; }
+      .content { padding: 16px 16px 22px; }
+      .header { padding: 18px 16px 14px; }
+      .grid { grid-template-columns: 1fr; }
+      .doc-ref { text-align: left; width: 100%; }
+      .tarif-box { flex-direction: column; align-items: flex-start; }
     }
   </style>
 </head>
@@ -380,7 +378,7 @@ abstract final class KeleganceDocumentsPdfService {
     final modele = '''
     <div class="header">
       <div class="brand">
-        <h1>Kelegance Prestige</h1>
+        <h1>{{raisonSociale}}</h1>
         <p>Chauffeur privé &amp; VTC premium</p>
       </div>
       <div class="doc-ref">
@@ -393,7 +391,7 @@ abstract final class KeleganceDocumentsPdfService {
       <p class="legal">{{articleLegal}}</p>
       <p class="section-title">Exploitant</p>
       <div class="grid">
-        <div class="field"><label>Raison sociale</label><span>{{exploitant}}</span></div>
+        <div class="field"><label>Raison sociale</label><span>{{raisonSociale}}</span></div>
         <div class="field"><label>Contact</label><span>{{emailAdmin}}</span></div>
         <div class="field"><label>WhatsApp Pro</label><span><a href="{{whatsappLien}}" style="color:#D4AF37">{{whatsapp}}</a></span></div>
       </div>
@@ -417,9 +415,10 @@ abstract final class KeleganceDocumentsPdfService {
         Ce document atteste d'une réservation préalable effectuée par le client conformément
         à la réglementation VTC en vigueur. Le tarif affiché est définitif et sans supplément caché.
       </div>
+      ${_blocMentionsLegales()}
     </div>
     <div class="footer">
-      <span>Token sécurisé : {{token}}</span>
+      <span>Document électronique — token {{token}}</span>
       <div class="contact">
         <a href="mailto:{{emailAdmin}}">{{emailAdmin}}</a>
         <a href="{{whatsappLien}}">WhatsApp {{whatsapp}}</a>
@@ -432,8 +431,8 @@ abstract final class KeleganceDocumentsPdfService {
     final modele = '''
     <div class="header">
       <div class="brand">
-        <h1>Kelegance Prestige</h1>
-        <p>Facturation transport VTC</p>
+        <h1>{{raisonSociale}}</h1>
+        <p>Facturation électronique — transport VTC</p>
       </div>
       <div class="doc-ref">
         <strong>FACTURE TTC</strong>
@@ -445,7 +444,7 @@ abstract final class KeleganceDocumentsPdfService {
       <p class="legal">{{articleLegal}}</p>
       <p class="section-title">Émetteur</p>
       <div class="grid">
-        <div class="field"><label>Exploitant</label><span>{{exploitant}}</span></div>
+        <div class="field"><label>Exploitant</label><span>{{raisonSociale}}</span></div>
         <div class="field"><label>E-mail</label><span>{{emailAdmin}}</span></div>
         <div class="field"><label>WhatsApp Pro</label><span><a href="{{whatsappLien}}" style="color:#D4AF37">{{whatsapp}}</a></span></div>
       </div>
@@ -455,6 +454,7 @@ abstract final class KeleganceDocumentsPdfService {
         <div class="field"><label>E-mail</label><span>{{email}}</span></div>
       </div>
       <p class="section-title">Détail de la prestation</p>
+      <div class="table-wrap">
       <table class="facture">
         <thead>
           <tr>
@@ -481,13 +481,16 @@ abstract final class KeleganceDocumentsPdfService {
           </tr>
         </tbody>
       </table>
+      </div>
       <div class="attestation">
         Facture acquittée — prestation réalisée le {{date}} à {{heure}}.
-        Passagers : {{passagers}}. Paiement enregistré via Kélégance Prestige.
+        Passagers : {{passagers}}. TVA au taux de {{tauxTva}} % applicable aux transports de personnes.
+        Paiement enregistré via Kélégance Prestige.
       </div>
+      ${_blocMentionsLegales()}
     </div>
     <div class="footer">
-      <span>Réf. mission {{token}}</span>
+      <span>Facture électronique — réf. {{token}}</span>
       <div class="contact">
         <a href="mailto:{{emailAdmin}}">{{emailAdmin}}</a>
         <a href="{{whatsappLien}}">WhatsApp {{whatsapp}}</a>
@@ -497,180 +500,23 @@ abstract final class KeleganceDocumentsPdfService {
   }
 
   static String _echapper(String texte) => const HtmlEscape().convert(texte);
-
-  static pw.Widget _pdfEntete(
-    KeleganceDocumentDonnees d,
-    PdfColor or,
-    PdfColor texte,
-  ) {
-    return pw.Row(
-      mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
-      crossAxisAlignment: pw.CrossAxisAlignment.start,
-      children: [
-        pw.Column(
-          crossAxisAlignment: pw.CrossAxisAlignment.start,
-          children: [
-            pw.Text(
-              'KELEGANCE PRESTIGE',
-              style: pw.TextStyle(color: or, fontSize: 18, letterSpacing: 2),
-            ),
-            pw.SizedBox(height: 4),
-            pw.Text(
-              d.titre,
-              style: pw.TextStyle(color: texte, fontSize: 10),
-            ),
-          ],
-        ),
-        pw.Column(
-          crossAxisAlignment: pw.CrossAxisAlignment.end,
-          children: [
-            pw.Text(d.numeroDocument, style: pw.TextStyle(color: or, fontSize: 12, fontWeight: pw.FontWeight.bold)),
-            pw.Text('Émis le ${d.dateEmission}', style: pw.TextStyle(color: texte, fontSize: 9)),
-          ],
-        ),
-      ],
-    );
-  }
-
-  static List<pw.Widget> _pdfCorpsBonCommande(
-    KeleganceDocumentDonnees d,
-    PdfColor or,
-    PdfColor texte,
-  ) {
-    return [
-      pw.Text(_articleLegal, style: pw.TextStyle(color: texte, fontSize: 8, fontStyle: pw.FontStyle.italic)),
-      pw.SizedBox(height: 12),
-      ..._pdfLigne('Client', d.client, or, texte),
-      ..._pdfLigne('E-mail', d.email, or, texte),
-      ..._pdfLigne('Date', d.date, or, texte),
-      ..._pdfLigne('Heure', d.heure, or, texte),
-      ..._pdfLigne('Lieu de prise en charge', d.depart, or, texte),
-      ..._pdfLigne('Destination', d.destination, or, texte),
-      ..._pdfLigne('Passagers', d.passagers.toString(), or, texte),
-      pw.SizedBox(height: 14),
-      pw.Container(
-        padding: const pw.EdgeInsets.all(12),
-        decoration: pw.BoxDecoration(
-          border: pw.Border.all(color: or),
-          borderRadius: pw.BorderRadius.circular(6),
-        ),
-        child: pw.Row(
-          mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
-          children: [
-            pw.Text('Tarif TTC convenu', style: pw.TextStyle(color: texte, fontSize: 11)),
-            pw.Text(d.prixTtcFormate, style: pw.TextStyle(color: or, fontSize: 18, fontWeight: pw.FontWeight.bold)),
-          ],
-        ),
-      ),
-    ];
-  }
-
-  static List<pw.Widget> _pdfCorpsFacture(
-    KeleganceDocumentDonnees d,
-    PdfColor or,
-    PdfColor texte,
-  ) {
-    return [
-      ..._pdfLigne('Client', d.client, or, texte),
-      ..._pdfLigne('E-mail', d.email, or, texte),
-      pw.SizedBox(height: 10),
-      pw.Table(
-        border: pw.TableBorder.all(color: or, width: 0.3),
-        columnWidths: {
-          0: const pw.FlexColumnWidth(3),
-          1: const pw.FlexColumnWidth(1),
-          2: const pw.FlexColumnWidth(1),
-          3: const pw.FlexColumnWidth(1),
-        },
-        children: [
-          pw.TableRow(
-            decoration: pw.BoxDecoration(color: PdfColor.fromHex('#121E33')),
-            children: [
-              _pdfCell('Prestation', or, bold: true),
-              _pdfCell('HT', or, bold: true),
-              _pdfCell('TVA 10%', or, bold: true),
-              _pdfCell('TTC', or, bold: true),
-            ],
-          ),
-          pw.TableRow(
-            children: [
-              _pdfCell('${d.depart} → ${d.destination}\n${d.date} ${d.heure}', texte),
-              _pdfCell(d.prixHtFormate, texte),
-              _pdfCell(d.tvaFormate, texte),
-              _pdfCell(d.prixTtcFormate, texte),
-            ],
-          ),
-          pw.TableRow(
-            children: [
-              _pdfCell('TOTAL', or, bold: true),
-              _pdfCell('', texte),
-              _pdfCell('', texte),
-              _pdfCell(d.prixTtcFormate, or, bold: true),
-            ],
-          ),
-        ],
-      ),
-    ];
-  }
-
-  static pw.Widget _pdfCell(String texte, PdfColor couleur, {bool bold = false}) {
-    return pw.Padding(
-      padding: const pw.EdgeInsets.all(6),
-      child: pw.Text(
-        texte,
-        style: pw.TextStyle(
-          color: couleur,
-          fontSize: 9,
-          fontWeight: bold ? pw.FontWeight.bold : pw.FontWeight.normal,
-        ),
-      ),
-    );
-  }
-
-  static List<pw.Widget> _pdfLigne(String label, String valeur, PdfColor or, PdfColor texte) {
-    return [
-      pw.Row(
-        crossAxisAlignment: pw.CrossAxisAlignment.start,
-        children: [
-          pw.SizedBox(
-            width: 90,
-            child: pw.Text(label, style: pw.TextStyle(color: or, fontSize: 9, letterSpacing: 0.5)),
-          ),
-          pw.Expanded(child: pw.Text(valeur, style: pw.TextStyle(color: texte, fontSize: 10))),
-        ],
-      ),
-      pw.SizedBox(height: 5),
-    ];
-  }
-
-  static pw.Widget _pdfPiedDePage(PdfColor or, PdfColor texte) {
-    return pw.Column(
-      children: [
-        pw.Divider(color: or),
-        pw.SizedBox(height: 6),
-        pw.Row(
-          mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
-          children: [
-            pw.Text(emailAdmin, style: pw.TextStyle(color: or, fontSize: 9)),
-            pw.Text(whatsappPrestige, style: pw.TextStyle(color: texte, fontSize: 9)),
-          ],
-        ),
-        pw.SizedBox(height: 4),
-        pw.Text(
-          KeleganceIdentiteDocuments.exploitant,
-          style: pw.TextStyle(color: texte, fontSize: 8),
-          textAlign: pw.TextAlign.center,
-        ),
-      ],
-    );
-  }
 }
 
-/// Identité légale & contacts documents — source unique charte KELEGANCE.
+/// Identité légale & contacts documents — source unique facturation électronique.
 abstract final class KeleganceIdentiteDocuments {
   static const String emailAdmin = 'admin@kelegance-prestige.com';
   static const String whatsappPrestige = '+33 6 65 58 73 60';
-  static const String exploitant = 'KELEGANCE PRESTIGE';
+  static const String exploitant = 'KELEGANCE';
+  static const String raisonSociale = 'KELEGANCE';
+  static const String adresseSiege = '8 RUE AMPERE, 92000 NANTERRE FRANCE';
+  static const String siret = '80484152600028';
+  static const String numeroTva = 'Non assujetti';
+  static const String codeApe = '4932Z';
+  static const String conditionsReglement =
+      'Paiement comptant à bord (carte bancaire ou espèces) ou virement sous 30 jours '
+      'pour les comptes entreprise agréés. En l\'absence de paiement à l\'échéance, '
+      'des pénalités de retard au taux légal seront applicables, ainsi qu\'une indemnité '
+      'forfaitaire de 40 € pour frais de recouvrement (art. L.441-10 C. com.).';
   static const String prestationVtc = 'Transport Public Particulier de Personnes';
 
   static String get lienWhatsApp {

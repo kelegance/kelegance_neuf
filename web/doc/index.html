@@ -2,7 +2,8 @@
 <html lang="fr">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+  <meta name="theme-color" content="#0B1426">
   <title>Document — KELEGANCE PRESTIGE</title>
   <style>
     body {
@@ -43,6 +44,60 @@
     #erreur p { color: rgba(245,240,230,0.6); font-size: 13px; margin-top: 12px; }
     #erreur a { color: #D4AF37; }
     #contenu { display: none; }
+    #barre-actions {
+      display: none;
+      position: sticky;
+      top: 0;
+      z-index: 100;
+      background: rgba(11, 20, 38, 0.95);
+      backdrop-filter: blur(8px);
+      -webkit-backdrop-filter: blur(8px);
+      border-bottom: 1px solid rgba(212, 175, 55, 0.35);
+      padding: max(10px, env(safe-area-inset-top)) 16px 10px;
+    }
+    #barre-actions .inner {
+      max-width: 760px;
+      margin: 0 auto;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      flex-wrap: wrap;
+    }
+    #barre-actions .titre-doc {
+      font-size: 12px;
+      letter-spacing: 1.5px;
+      text-transform: uppercase;
+      color: #D4AF37;
+      font-weight: 500;
+    }
+    #barre-actions .boutons {
+      display: flex;
+      gap: 8px;
+      flex-wrap: wrap;
+    }
+    #barre-actions button {
+      font-family: inherit;
+      font-size: 12px;
+      font-weight: 600;
+      padding: 8px 14px;
+      border-radius: 8px;
+      cursor: pointer;
+      border: none;
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+    }
+    #btn-partager {
+      background: #D4AF37;
+      color: #0B1426;
+    }
+    #btn-email {
+      background: transparent;
+      color: #D4AF37;
+      border: 1px solid rgba(212, 175, 55, 0.55) !important;
+    }
+    #barre-actions button:active { opacity: 0.85; }
   </style>
 </head>
 <body>
@@ -54,6 +109,21 @@
     <h1>KELEGANCE PRESTIGE</h1>
     <p id="message-erreur">Document introuvable ou lien expiré.</p>
     <p style="margin-top:20px"><a href="mailto:admin@kelegance-prestige.com">admin@kelegance-prestige.com</a></p>
+  </div>
+  <div id="barre-actions">
+    <div class="inner">
+      <span class="titre-doc" id="titre-doc">Document électronique</span>
+      <div class="boutons">
+        <button type="button" id="btn-partager" title="Partager le lien">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M18 16.08c-.76 0-1.44.3-1.96.77L8.91 12.7c.05-.23.09-.46.09-.7s-.04-.47-.09-.7l7.05-4.11c.54.5 1.25.81 2.04.81 1.66 0 3-1.34 3-3s-1.34-3-3-3-3 1.34-3 3c0 .24.04.47.09.7L8.04 9.81C7.5 9.31 6.79 9 6 9c-1.66 0-3 1.34-3 3s1.34 3 3 3c.79 0 1.5-.31 2.04-.81l7.12 4.16c-.05.21-.08.43-.08.65 0 1.61 1.31 2.92 2.92 2.92s2.92-1.31 2.92-2.92-1.31-2.92-2.92-2.92z"/></svg>
+          Partager
+        </button>
+        <button type="button" id="btn-email" title="Envoyer par e-mail">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M20 4H4c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V6c0-1.1-.9-2-2-2zm0 4-8 5-8-5V6l8 5 8-5v2z"/></svg>
+          Envoyer par e-mail
+        </button>
+      </div>
+    </div>
   </div>
   <div id="contenu"></div>
 
@@ -74,6 +144,47 @@
     const loader = document.getElementById('loader');
     const erreur = document.getElementById('erreur');
     const contenu = document.getElementById('contenu');
+    const barreActions = document.getElementById('barre-actions');
+    const titreDoc = document.getElementById('titre-doc');
+    const lienPage = window.location.href;
+
+    let docMeta = { titre: 'Document Kélégance', email: '' };
+
+    function messagePartage() {
+      return `Kelegance Prestige — ${docMeta.titre}\nConsultez votre document électronique en ligne :\n${lienPage}`;
+    }
+
+    function configurerActions() {
+      barreActions.style.display = 'block';
+
+      document.getElementById('btn-partager').addEventListener('click', async () => {
+        const texte = messagePartage();
+        if (navigator.share) {
+          try {
+            await navigator.share({ title: docMeta.titre, text: texte, url: lienPage });
+            return;
+          } catch (e) {
+            if (e.name === 'AbortError') return;
+          }
+        }
+        try {
+          await navigator.clipboard.writeText(texte);
+          alert('Lien copié dans le presse-papiers.');
+        } catch {
+          prompt('Copiez ce lien pour le partager :', texte);
+        }
+      });
+
+      document.getElementById('btn-email').addEventListener('click', () => {
+        const subject = encodeURIComponent(`Kelegance Prestige — ${docMeta.titre}`);
+        const body = encodeURIComponent(messagePartage());
+        const to = docMeta.email ? encodeURIComponent(docMeta.email) : '';
+        const mailto = to
+          ? `mailto:${to}?subject=${subject}&body=${body}`
+          : `mailto:?subject=${subject}&body=${body}`;
+        window.location.href = mailto;
+      });
+    }
 
     function afficherErreur(msg) {
       loader.style.display = 'none';
@@ -98,10 +209,16 @@
             afficherErreur('Document en cours de génération. Réessayez dans quelques instants.');
             return;
           }
+          docMeta = {
+            titre: data.titre || 'Document Kélégance',
+            email: data.email || '',
+          };
+          titreDoc.textContent = docMeta.titre;
           loader.style.display = 'none';
           contenu.style.display = 'block';
           contenu.innerHTML = html;
-          document.title = (data.titre || 'Document') + ' — KELEGANCE PRESTIGE';
+          document.title = docMeta.titre + ' — KELEGANCE PRESTIGE';
+          configurerActions();
         }).catch((err) => {
           console.error('Firestore getDoc error:', err);
           const code = err?.code || '';

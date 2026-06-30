@@ -36,7 +36,7 @@
 
   <meta charset="UTF-8">
 
-  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
 
   <meta content="IE=Edge" http-equiv="X-UA-Compatible">
 
@@ -44,9 +44,9 @@
 
   <meta name="theme-color" content="#0B1426">
 
+  <link rel="manifest" href="manifest.json">
 
-
-  <!-- PWA / installation écran d'accueil -->
+  <!-- PWA standalone — priorité installation native (sans barre navigateur) -->
 
   <meta name="mobile-web-app-capable" content="yes">
 
@@ -58,8 +58,12 @@
 
   <meta name="apple-mobile-web-app-title" content="Kelegance">
 
-  <link rel="apple-touch-icon" href="icons/Icon-192.png">
-  <link rel="apple-touch-icon" sizes="192x192" href="icons/Icon-192.png">
+  <meta name="apple-mobile-web-app-orientation" content="portrait">
+
+  <meta name="format-detection" content="telephone=no">
+
+  <link rel="apple-touch-icon" href="icons/Icon-512.png">
+  <link rel="apple-touch-icon" sizes="180x180" href="icons/Icon-512.png">
   <link rel="apple-touch-icon" sizes="512x512" href="icons/Icon-512.png">
 
 
@@ -71,8 +75,6 @@
 
 
   <title>Kélégance Prestige</title>
-
-  <link rel="manifest" href="manifest.json">
 
   <!-- Google Maps JavaScript API — carte + autocomplétion adresses -->
   <script src="https://maps.googleapis.com/maps/api/js?key=AIzaSyCM_g7NBu0L8WZDi8SuJTyt2wiilbCvfmI&libraries=places"></script>
@@ -98,6 +100,61 @@
         );
       });
     };
+
+    window.keleganceOpenMapsNative = function (address) {
+      var enc = encodeURIComponent(address);
+      var url;
+      var ua = navigator.userAgent || '';
+      if (/Android/i.test(ua)) {
+        url = 'google.navigation:q=' + enc + '&mode=d';
+      } else if (/iPhone|iPad|iPod/i.test(ua)) {
+        url = 'comgooglemaps://?daddr=' + enc + '&directionsmode=driving';
+      } else {
+        url = 'googlemaps://?q=' + enc;
+      }
+      var link = document.createElement('a');
+      link.href = url;
+      link.style.display = 'none';
+      link.setAttribute('rel', 'external');
+      document.body.appendChild(link);
+      link.click();
+      setTimeout(function () {
+        if (link.parentNode) link.parentNode.removeChild(link);
+      }, 0);
+    };
+
+    window.keleganceDistanceMatrix = function (origin, destination) {
+      return new Promise(function (resolve) {
+        if (!window.google || !google.maps) {
+          resolve(null);
+          return;
+        }
+        var service = new google.maps.DistanceMatrixService();
+        service.getDistanceMatrix(
+          {
+            origins: [origin],
+            destinations: [destination],
+            travelMode: google.maps.TravelMode.DRIVING,
+            unitSystem: google.maps.UnitSystem.METRIC,
+          },
+          function (response, status) {
+            if (status !== 'OK' || !response || !response.rows || !response.rows[0]) {
+              resolve(null);
+              return;
+            }
+            var element = response.rows[0].elements[0];
+            if (!element || element.status !== 'OK') {
+              resolve(null);
+              return;
+            }
+            resolve({
+              km: element.distance.value / 1000,
+              minutes: element.duration.value / 60,
+            });
+          }
+        );
+      });
+    };
   </script>
 
   <style>
@@ -109,6 +166,10 @@
       height: 100%;
 
       background: #0B1426;
+
+      overscroll-behavior: none;
+
+      -webkit-tap-highlight-color: transparent;
 
     }
 
@@ -167,11 +228,174 @@
 
     }
 
+    /* Bannière PWA iPhone — page d'accueil mobile */
+    #kelegance-ios-pwa {
+      display: none;
+      position: fixed;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      z-index: 99999;
+      padding: 0 10px max(10px, env(safe-area-inset-bottom));
+      transform: translateY(110%);
+      opacity: 0;
+      transition: transform 0.5s cubic-bezier(0.22, 1, 0.36, 1), opacity 0.35s ease;
+      font-family: 'Segoe UI', system-ui, sans-serif;
+    }
+
+    #kelegance-ios-pwa.visible {
+      display: block;
+      transform: translateY(0);
+      opacity: 1;
+    }
+
+    #kelegance-ios-pwa .inner {
+      max-width: 400px;
+      margin: 0 auto;
+      background: linear-gradient(165deg, #121E33, #0B1426);
+      border: 1px solid rgba(212, 175, 55, 0.4);
+      border-radius: 12px 12px 2px 2px;
+      box-shadow: 0 -6px 32px rgba(0, 0, 0, 0.5);
+      color: #F5F0E6;
+      overflow: hidden;
+    }
+
+    #kelegance-ios-pwa .head {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 12px 14px 8px;
+      border-bottom: 1px solid rgba(212, 175, 55, 0.15);
+    }
+
+    #kelegance-ios-pwa .head img {
+      width: 36px;
+      height: 36px;
+      border-radius: 8px;
+      border: 1px solid rgba(212, 175, 55, 0.35);
+    }
+
+    #kelegance-ios-pwa .head p {
+      flex: 1;
+      margin: 0;
+      font-size: 13px;
+      color: #D4AF37;
+      letter-spacing: 0.04em;
+    }
+
+    #kelegance-ios-pwa .close {
+      background: none;
+      border: none;
+      color: rgba(245, 240, 230, 0.5);
+      font-size: 22px;
+      cursor: pointer;
+      padding: 0 4px;
+      line-height: 1;
+    }
+
+    #kelegance-ios-pwa .steps {
+      display: flex;
+      gap: 5px;
+      padding: 8px 14px 4px;
+    }
+
+    #kelegance-ios-pwa .dot {
+      flex: 1;
+      height: 3px;
+      border-radius: 2px;
+      background: rgba(212, 175, 55, 0.2);
+      transition: background 0.3s;
+    }
+
+    #kelegance-ios-pwa .dot.on {
+      background: #D4AF37;
+    }
+
+    #kelegance-ios-pwa .body {
+      padding: 6px 14px 12px;
+      font-size: 12px;
+      line-height: 1.55;
+      min-height: 44px;
+    }
+
+    #kelegance-ios-pwa .body strong { color: #D4AF37; }
+
+    #kelegance-ios-pwa .nav {
+      display: flex;
+      gap: 8px;
+      padding: 0 14px 12px;
+    }
+
+    #kelegance-ios-pwa .nav button {
+      flex: 1;
+      padding: 9px;
+      border-radius: 4px;
+      font-size: 10px;
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+      cursor: pointer;
+      border: 1px solid rgba(212, 175, 55, 0.35);
+      background: transparent;
+      color: #D4AF37;
+    }
+
+    #kelegance-ios-pwa .nav button.primary {
+      background: #D4AF37;
+      color: #0B1426;
+      border-color: transparent;
+    }
+
+    #kelegance-overlay-discretion {
+      position: fixed;
+      inset: 0;
+      z-index: 99999;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 18px;
+      background: #0A0A0A;
+      opacity: 0;
+      visibility: hidden;
+      pointer-events: none;
+      transition: opacity 0.12s ease, visibility 0.12s ease;
+    }
+
+    #kelegance-overlay-discretion.visible {
+      opacity: 1;
+      visibility: visible;
+      pointer-events: auto;
+    }
+
+    #kelegance-overlay-discretion img {
+      width: 72px;
+      height: 72px;
+      border-radius: 50%;
+      border: 1px solid rgba(212, 175, 55, 0.35);
+      padding: 5px;
+      background: #141414;
+      object-fit: contain;
+    }
+
+    #kelegance-overlay-discretion p {
+      margin: 0;
+      font-family: Georgia, 'Times New Roman', serif;
+      font-size: 22px;
+      letter-spacing: 0.28em;
+      text-indent: 0.28em;
+      color: #D4AF37;
+    }
+
   </style>
 
 </head>
 
 <body>
+
+  <div id="kelegance-overlay-discretion" aria-hidden="true">
+    <img src="icons/Icon-512.png" width="72" height="72" alt="">
+    <p>KELEGANCE</p>
+  </div>
 
   <div id="kelegance-loader">
 
@@ -180,6 +404,22 @@
     <div>KELEGANCE</div>
 
   </div>
+
+  <aside id="kelegance-ios-pwa" aria-label="Installation iPhone" aria-hidden="true">
+    <div class="inner">
+      <div class="head">
+        <img src="icons/Icon-512.png" width="36" height="36" alt="">
+        <p>Installer KELEGANCE<br><span style="font-size:10px;color:rgba(245,240,230,0.5)">Plein écran · sans barre Safari</span></p>
+        <button type="button" class="close" id="kelegance-ios-pwa-close" aria-label="Fermer">&times;</button>
+      </div>
+      <div class="steps" id="kelegance-ios-pwa-dots"></div>
+      <div class="body" id="kelegance-ios-pwa-text"></div>
+      <div class="nav">
+        <button type="button" id="kelegance-ios-pwa-prev">Précédent</button>
+        <button type="button" class="primary" id="kelegance-ios-pwa-next">Suivant</button>
+      </div>
+    </div>
+  </aside>
 
   <!--
 
@@ -199,18 +439,76 @@
 
   <script>
     (function () {
-      if (!('serviceWorker' in navigator)) return;
-      navigator.serviceWorker.getRegistrations().then(function (regs) {
-        regs.forEach(function (r) { r.unregister(); });
-      });
-      if (window.caches && caches.keys) {
-        caches.keys().then(function (keys) {
-          keys.forEach(function (k) { caches.delete(k); });
-        });
+      var ua = navigator.userAgent || '';
+      var isIOS = /iPad|iPhone|iPod/.test(ua) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+      var isStandalone = window.matchMedia('(display-mode: standalone)').matches || window.navigator.standalone === true;
+      if (!isIOS || isStandalone) return;
+      try { if (localStorage.getItem('kelegance_pwa_banner_ferme')) return; } catch (e) {}
+
+      var etapes = [
+        'Ouvrez cette page dans <strong>Safari</strong> pour installer l\'application.',
+        'Appuyez sur <strong>Partager</strong> (icône en bas de l\'écran).',
+        'Choisissez <strong>Sur l\'écran d\'accueil</strong>.',
+        'Validez <strong>Ajouter</strong> — l\'app s\'ouvrira en plein écran.'
+      ];
+      var banner = document.getElementById('kelegance-ios-pwa');
+      var dotsEl = document.getElementById('kelegance-ios-pwa-dots');
+      var textEl = document.getElementById('kelegance-ios-pwa-text');
+      var prevBtn = document.getElementById('kelegance-ios-pwa-prev');
+      var nextBtn = document.getElementById('kelegance-ios-pwa-next');
+      var closeBtn = document.getElementById('kelegance-ios-pwa-close');
+      var courante = 0;
+      var dots = [];
+
+      for (var i = 0; i < etapes.length; i++) {
+        var d = document.createElement('span');
+        d.className = 'dot' + (i === 0 ? ' on' : '');
+        dotsEl.appendChild(d);
+        dots.push(d);
       }
+
+      function show(idx) {
+        courante = idx;
+        textEl.innerHTML = etapes[idx];
+        dots.forEach(function (dot, j) { dot.classList.toggle('on', j === idx); });
+        prevBtn.style.visibility = idx === 0 ? 'hidden' : 'visible';
+        nextBtn.textContent = idx === etapes.length - 1 ? 'Compris' : 'Suivant';
+      }
+
+      setTimeout(function () {
+        banner.classList.add('visible');
+        banner.setAttribute('aria-hidden', 'false');
+      }, 1500);
+
+      prevBtn.addEventListener('click', function () { if (courante > 0) show(courante - 1); });
+      nextBtn.addEventListener('click', function () {
+        if (courante < etapes.length - 1) show(courante + 1);
+        else fermer();
+      });
+      closeBtn.addEventListener('click', fermer);
+
+      function fermer() {
+        banner.classList.remove('visible');
+        banner.setAttribute('aria-hidden', 'true');
+        try { localStorage.setItem('kelegance_pwa_banner_ferme', '1'); } catch (e) {}
+      }
+
+      show(0);
     })();
   </script>
-  <script src="flutter_bootstrap.js" async></script>
+  <script type="module">
+    import { initOverlayDiscretion } from '/hub/overlay-discretion.js';
+    initOverlayDiscretion();
+  </script>
+  <script src="kelegance-version-check.js"></script>
+  <script>
+    keleganceVerifierVersion(function () {
+      var s = document.createElement('script');
+      s.src = 'flutter_bootstrap.js';
+      s.async = true;
+      document.body.appendChild(s);
+    });
+  </script>
   <script>
     window.addEventListener('flutter-first-frame', function () {
       var loader = document.getElementById('kelegance-loader');

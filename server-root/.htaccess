@@ -1,0 +1,49 @@
+# KELEGANCE — Racine serveur APK (Apache)
+# Empêche le listage de fichiers et protège admin_dashboard.apk (Basic Auth).
+#
+# Déploiement :
+#   1. Uploadez le contenu de server-root/ (ou dist/apk-server/) à la racine web.
+#   2. Générez .htpasswd : npm run gen:htpasswd -- equipe VotreMotDePasse
+#   3. Uploadez .htpasswd à la racine (même dossier que ce fichier).
+
+# ── Page d'accueil (plus de liste de fichiers) ──────────────────────────────
+Options -Indexes +FollowSymLinks
+DirectoryIndex index.html
+
+# ── Fichiers cachés / sensibles ─────────────────────────────────────────────
+<FilesMatch "^\.">
+  <IfModule mod_authz_core.c>
+    Require all denied
+  </IfModule>
+  <IfModule !mod_authz_core.c>
+    Order allow,deny
+    Deny from all
+  </IfModule>
+</FilesMatch>
+
+# ── Dashboard admin — accès équipe uniquement ───────────────────────────────
+# Sans identifiants : HTTP 401 (navigateur demande login/mot de passe).
+<Files "admin_dashboard.apk">
+  AuthType Basic
+  AuthName "KELEGANCE — Acces equipe"
+  AuthUserFile "%{DOCUMENT_ROOT}/.htpasswd"
+  <IfModule mod_authz_core.c>
+    Require valid-user
+  </IfModule>
+  <IfModule !mod_authz_core.c>
+    Require valid-user
+  </IfModule>
+</Files>
+
+# ── Type MIME APK ───────────────────────────────────────────────────────────
+<IfModule mod_mime.c>
+  AddType application/vnd.android.package-archive .apk
+</IfModule>
+
+# ── Cache APK public ────────────────────────────────────────────────────────
+<IfModule mod_headers.c>
+  <FilesMatch "\.apk$">
+    Header set Cache-Control "public, max-age=3600"
+    Header set Content-Disposition "attachment"
+  </FilesMatch>
+</IfModule>

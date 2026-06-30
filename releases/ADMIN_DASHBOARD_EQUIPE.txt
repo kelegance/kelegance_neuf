@@ -1,0 +1,31 @@
+KELEGANCE — Liens APK équipe (Google Drive, accès privé)
+=========================================================
+
+Ne jamais publier ces APK sur le site web public (Firebase / Netlify).
+Le téléchargement public clients reste : https://kelegance.web.app/releases/kelegance-latest.apk
+
+─── APK Application Android — v1.0.7 (actif) ───────────────────────────────
+
+Fichier : kelegance-v1.0.7.apk
+Partagé avec : Deborah, Marc-Alexandre, Nicolas
+
+Lien Drive :
+  https://drive.google.com/file/d/1rf83452-E2cUT-dIIE5DD79_3d1dX2-9/view?usp=sharing
+
+Fichier local correspondant :
+  C:\Users\Nico\Desktop\kelegance_neuf\releases\kelegance-v1.0.7.apk
+
+─── APK Dashboard Admin (admin_dashboard.apk) ─────────────────────────────
+
+À uploader séparément sur Drive quand une nouvelle version admin est compilée.
+Ne jamais copier admin_dashboard.apk dans build/web/ ni releases/.
+
+Destinataires : deborah.jetil@gmail.com · linel.marcalexandrepro@gmail.com · nicolas.nbchauffeurs@gmail.com
+
+─── Mise à jour ────────────────────────────────────────────────────────────
+
+À chaque nouvelle version :
+  1. Compiler : flutter build apk --release  (ou npm run deploy:android)
+  2. Remplacer le fichier sur Drive
+  3. Mettre à jour ce fichier (version + lien)
+  4. Prévenir l'équipe par message

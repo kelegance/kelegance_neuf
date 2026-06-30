@@ -5,6 +5,14 @@ import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'kelegance_init_firestore.dart';
+import 'kelegance_invitation_chauffeur.dart';
+import 'kelegance_bon_commande_service.dart';
+import 'kelegance_factures_service.dart';
+import 'kelegance_missions_service.dart';
+import 'kelegance_presence_service.dart';
+import 'kelegance_roles.dart';
+import 'kelegance_notification_service.dart';
+import 'reveil_missions_service.dart';
 
 class AuthService {
   static const String roleSessionKey = 'kelegance_auth_role_v215';
@@ -67,10 +75,9 @@ class AuthService {
   }
 
   static bool _estProfilAdmin(Map<String, dynamic>? data, String? email) {
-    if (data == null) return false;
-    if (_normaliserRole(data['role']) == 'admin') return true;
+    if (KeleganceRoles.profilIndiqueBrasDroit(data)) return true;
     final mail = email?.toLowerCase().trim();
-    return mail != null && mail == KeleganceProfilsBootstrap.emailAdminNicolas.toLowerCase();
+    return mail != null && KeleganceProfilsBootstrap.emailsAdmin.any((e) => e.toLowerCase() == mail);
   }
 
   static bool _aAccesChauffeur(Map<String, dynamic>? data) {
@@ -112,8 +119,9 @@ class AuthService {
 
   static Future<void> _synchroniserProfilChauffeurUid(User user, {Map<String, dynamic>? source}) async {
     final email = user.email?.toLowerCase().trim();
+    final roleFirestore = source?['role']?.toString().toLowerCase().trim();
     final payload = <String, dynamic>{
-      'role': 'chauffeur',
+      'role': roleFirestore == 'driver' ? 'driver' : 'chauffeur',
       'email': email,
       'isApproved': true,
       'bypassCerclePrive': true,
@@ -321,10 +329,16 @@ class AuthService {
     await _synchroniserProfilClientUid(user);
   }
 
-  static Future<void> declarerProfilChauffeur(User user) async {
+  static Future<void> declarerProfilChauffeur(User user, {String? tokenInvitation}) async {
     await sauvegarderRoleSession('chauffeur');
     final bootstrap = await _profilParEmail(user.email?.toLowerCase().trim());
     await _synchroniserProfilChauffeurUid(user, source: bootstrap);
+    final invite = tokenInvitation ?? (kIsWeb ? Uri.base.queryParameters['invite'] : null);
+    await KeleganceInvitationChauffeur.appliquerInvitationSiPresente(
+      user: user,
+      token: invite,
+      emailAttendu: user.email,
+    );
   }
 
   Future<User?> signInWithEmailAndPassword(String email, String password) async {
@@ -355,7 +369,17 @@ class AuthService {
 
   Future<void> signOut() async {
     try {
+      await KelegancePresenceService.declarerHorsLigne();
       await effacerRoleSession();
+      KeleganceRoles.invaliderCache();
+      await KeleganceMissionsService.arreter();
+      await KeleganceFacturesService.arreter();
+      await KelegancePresenceService.arreter();
+      await KeleganceBonCommandeService.arreter();
+      await KeleganceNotificationService.arreter();
+      if (!kIsWeb) {
+        await KeleganceReveilMissions.arreterSynchronisationFirestore();
+      }
       await _auth.signOut();
     } catch (e) {
       debugPrint('Erreur de déconnexion : $e');

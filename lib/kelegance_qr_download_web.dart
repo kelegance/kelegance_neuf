@@ -1,7 +1,11 @@
 import 'dart:html' as html;
 import 'dart:typed_data';
 
-Future<void> telechargerQrPng(Uint8List bytes, String nomFichier) async {
+Future<void> telechargerQrPng(
+  Uint8List bytes,
+  String nomFichier, {
+  required String lienHub,
+}) async {
   final blob = html.Blob([bytes], 'image/png');
   final url = html.Url.createObjectUrlFromBlob(blob);
   final anchor = html.AnchorElement(href: url)

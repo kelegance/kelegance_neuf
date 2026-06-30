@@ -1,13 +1,13 @@
 # Kelegance — déploiement Flutter Web sur Netlify (sans service worker)
 
-[[plugins]]
-  package = "netlify-plugin-flutter"
-
-  [plugins.inputs]
-    channel = "stable"
+# [[plugins]]
+#   package = "netlify-plugin-flutter"
+#
+#   [plugins.inputs]
+#     channel = "stable"
 
 [build]
-  command = "bash scripts/netlify-build.sh"
+  # command = "bash scripts/netlify-build.sh"  # build local uniquement (v1.0.5+)
   publish = "build/web"
 
 [build.environment]
@@ -24,52 +24,93 @@
 
 [[redirects]]
   from = "/reserver"
-  to = "/index.html"
+  to = "/app.html"
   status = 200
 
 [[redirects]]
   from = "/reserver/*"
-  to = "/index.html"
+  to = "/app.html"
   status = 200
 
 [[redirects]]
   from = "/gestion"
-  to = "/index.html"
+  to = "/app.html"
   status = 200
 
 [[redirects]]
   from = "/gestion/*"
-  to = "/index.html"
+  to = "/app.html"
   status = 200
 
 [[redirects]]
   from = "/mappy"
-  to = "/index.html"
+  to = "/app.html"
   status = 200
 
 [[redirects]]
   from = "/mappy/*"
-  to = "/index.html"
+  to = "/app.html"
+  status = 200
+
+[[redirects]]
+  from = "/chauffeur"
+  to = "/app.html"
+  status = 200
+
+[[redirects]]
+  from = "/chauffeur/*"
+  to = "/app.html"
   status = 200
 
 [[redirects]]
   from = "/admin/qrcodes"
-  to = "/index.html"
+  to = "/app.html"
   status = 200
 
 [[redirects]]
   from = "/admin/qrcodes/*"
-  to = "/index.html"
+  to = "/app.html"
   status = 200
 
 [[redirects]]
-  from = "/*"
-  to = "/index.html"
+  from = "/console"
+  to = "/app.html"
   status = 200
 
-# Anti-cache sur le shell Flutter — évite les versions figées (pas de SW)
+[[redirects]]
+  from = "/console/*"
+  to = "/app.html"
+  status = 200
+
+[[redirects]]
+  from = "/admin"
+  to = "/app.html"
+  status = 200
+
+[[redirects]]
+  from = "/admin/*"
+  to = "/app.html"
+  status = 200
+
+[[redirects]]
+  from = "/hub"
+  to = "/hub/index.html"
+  status = 200
+
+[[redirects]]
+  from = "/hub/*"
+  to = "/hub/index.html"
+  status = 200
+
+# Anti-cache — vitrine publique + shell Flutter
 [[headers]]
   for = "/index.html"
+  [headers.values]
+    Cache-Control = "no-cache, no-store, must-revalidate"
+    Pragma = "no-cache"
+
+[[headers]]
+  for = "/app.html"
   [headers.values]
     Cache-Control = "no-cache, no-store, must-revalidate"
     Pragma = "no-cache"
@@ -81,7 +122,57 @@
     Pragma = "no-cache"
 
 [[headers]]
+  for = "/version.json"
+  [headers.values]
+    Cache-Control = "no-cache, no-store, must-revalidate"
+    Pragma = "no-cache"
+
+[[headers]]
+  for = "/kelegance-version-check.js"
+  [headers.values]
+    Cache-Control = "no-cache, no-store, must-revalidate"
+    Pragma = "no-cache"
+
+[[headers]]
+  for = "/main.dart.js"
+  [headers.values]
+    Cache-Control = "no-cache, no-store, must-revalidate"
+    Pragma = "no-cache"
+
+[[headers]]
   for = "/flutter_service_worker.js"
   [headers.values]
     Cache-Control = "no-cache, no-store, must-revalidate"
     X-Robots-Tag = "noindex"
+
+[[headers]]
+  for = "/releases/android-latest.json"
+  [headers.values]
+    Cache-Control = "no-cache, no-store, must-revalidate"
+
+[[headers]]
+  for = "/hub/manifest.webmanifest"
+  [headers.values]
+    Cache-Control = "public, max-age=3600"
+    Content-Type = "application/manifest+json"
+
+[[headers]]
+  for = "/hub/sw.js"
+  [headers.values]
+    Cache-Control = "no-cache, no-store, must-revalidate"
+    Service-Worker-Allowed = "/hub/"
+
+[[headers]]
+  for = "/hub/*"
+  [headers.values]
+    Cache-Control = "public, max-age=300"
+
+[[headers]]
+  for = "/releases/web-latest.json"
+  [headers.values]
+    Cache-Control = "no-cache, no-store, must-revalidate"
+
+[[headers]]
+  for = "/releases/*.apk"
+  [headers.values]
+    Cache-Control = "public, max-age=3600"

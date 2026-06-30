@@ -12,7 +12,7 @@ const buildDir = join(root, 'build', 'web');
 const templatePath = join(root, 'web', 'kelegance-service-worker.template.js');
 const outputPath = join(buildDir, 'flutter_service_worker.js');
 
-const ROUTES_SPA = ['/', '/index.html', '/reserver', '/gestion', '/admin/qrcodes'];
+const ROUTES_SPA = ['/app.html', '/reserver', '/gestion', '/chauffeur', '/admin/qrcodes', '/console'];
 
 const EXCLUDED = new Set([
   'flutter_service_worker.js',

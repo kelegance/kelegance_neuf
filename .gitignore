@@ -48,3 +48,10 @@ app.*.map.json
 node_modules/
 .firebase/
 .firebase-token.local
+
+# Local Netlify folder
+.netlify
+
+# Serveur APK Apache (mots de passe + build déployable)
+server-root/.htpasswd
+dist/apk-server/

@@ -7,16 +7,18 @@
  *   node scripts/test-deep-links.mjs --origin https://votre-site.netlify.app
  *   node scripts/test-deep-links.mjs --origin https://cheerful-salamander-565dfc.netlify.app --verbose
  */
-const ORIGIN_DEFAUT = 'https://cheerful-salamander-565dfc.netlify.app';
+const ORIGIN_DEFAUT = 'https://kelegance.web.app';
 
 const ROUTES = [
   { id: 'accueil', path: '/', label: 'Accueil', attendHtml: true },
   { id: 'reserver', path: '/reserver', label: 'Deep link Client', attendHtml: true },
   { id: 'gestion', path: '/gestion', label: 'Deep link Bras Droit', attendHtml: true },
+  { id: 'chauffeur', path: '/chauffeur?role=driver', label: 'Deep link Chauffeur', attendHtml: true },
   { id: 'admin-qr', path: '/admin/qrcodes', label: 'Admin QR codes', attendHtml: true },
   { id: 'manifest', path: '/manifest.json', label: 'Manifest PWA', attendJson: true },
-  { id: 'sw', path: '/flutter_service_worker.js', label: 'Service worker (absent)', attendAbsent: true },
-  { id: 'bootstrap', path: '/flutter_bootstrap.js', label: 'Flutter bootstrap', attendJs: true },
+  { id: 'version', path: '/version.json', label: 'Version build PWA', attendJson: true },
+  { id: 'sw', path: '/flutter_service_worker.js', label: 'Service worker Kelegance', attendJs: true, attendSw: true },
+  { id: 'bootstrap', path: '/flutter_bootstrap.js', label: 'Flutter bootstrap', attendJs: true, attendSwConfig: true },
   { id: 'main', path: '/main.dart.js', label: 'Application Flutter', attendJs: true },
 ];
 
@@ -112,12 +114,21 @@ function evaluerRoute(route, result) {
     problemes.push(`Manifest non JSON : ${result.contentType}`);
   }
 
-  if (route.attendAbsent && result.ok) {
-    problemes.push('flutter_service_worker.js ne devrait pas être déployé');
+  if (route.attendSw && result.ok && !result.body.includes('CACHE_NAME')) {
+    problemes.push('Service worker sans CACHE_NAME versionné');
   }
 
-  if (route.attendJs && route.id === 'bootstrap' && contientServiceWorkerConfig(result.body)) {
-    problemes.push('flutter_bootstrap.js enregistre encore un service worker');
+  if (route.attendSwConfig && !contientServiceWorkerConfig(result.body)) {
+    problemes.push('flutter_bootstrap.js n’enregistre pas le service worker Kelegance');
+  }
+
+  if (route.attendJson && route.id === 'version') {
+    try {
+      const json = JSON.parse(result.body);
+      if (!json.buildId) problemes.push('version.json sans buildId');
+    } catch {
+      problemes.push('version.json invalide');
+    }
   }
 
   return problemes;
@@ -166,6 +177,7 @@ async function main() {
 
   console.log('\n── URLs à tester sur mobile ──────────────────────────────');
   console.log(`  Client      : ${origin}/reserver`);
+  console.log(`  Chauffeur   : ${origin}/chauffeur?role=driver`);
   console.log(`  Bras Droit  : ${origin}/gestion`);
   console.log(`  Admin QR    : ${origin}/admin/qrcodes`);
   console.log('\n── Checklist imprimable ──────────────────────────────────');

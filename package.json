@@ -7,16 +7,25 @@
     "firebase": "firebase",
     "firebase:login-ci": "powershell -ExecutionPolicy Bypass -File scripts/firebase-login-ci.ps1",
     "deploy:web": "node scripts/deploy-web.mjs",
+    "deploy:production": "node scripts/deploy-production.mjs",
+    "deploy:pwa": "node scripts/deploy-production.mjs -- --skip-apk",
     "deploy:netlify": "node scripts/deploy-netlify.mjs",
-    "deploy:hosting": "npm run deploy:netlify",
+    "deploy:android": "node scripts/publish-android-release.mjs",
+    "deploy:android:ota": "node scripts/publish-android-release.mjs --deploy",
+    "deploy:hosting": "npm run deploy:production",
     "deploy:hosting:only": "node scripts/deploy-hosting-only.mjs",
+    "deploy:hosting:firebase": "node scripts/deploy-hosting-firebase.mjs",
     "deploy:functions": "firebase deploy --only functions",
     "deploy": "npm run deploy:netlify && firebase deploy --only functions",
     "login": "firebase login --reauth",
-    "test:deeplinks": "node scripts/test-deep-links.mjs"
+    "test:deeplinks": "node scripts/test-deep-links.mjs",
+    "export:cartes-visite": "node scripts/export-cartes-visite-pdf.mjs",
+    "prepare:apk-server": "node scripts/prepare-apk-server.mjs",
+    "gen:htpasswd": "node scripts/gen-htpasswd.mjs"
   },
   "devDependencies": {
     "firebase-tools": "^15.22.0",
-    "netlify-cli": "^23.0.0"
+    "netlify-cli": "^23.0.0",
+    "puppeteer": "^24.43.1"
   }
 }

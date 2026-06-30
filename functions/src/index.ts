@@ -1,20 +1,25 @@
 import * as admin from "firebase-admin";
 import * as functions from "firebase-functions/v1";
 import * as logger from "firebase-functions/logger";
-import { envoyerBonCommandeParEmail, envoyerFactureParEmail } from "./email/mailer";
+import { envoyerBonCommandeParEmail, envoyerFactureParEmail, envoyerAlerteReservationHub } from "./email/mailer";
 import {
   chargerDocumentExistant,
   documentExisteDeja,
-  DocumentPublie,
   publierDocument,
   resoudreEmailClient,
 } from "./documents/invoice-service";
-import { genererPdfDepuisHtml, genererPdfDocument } from "./documents/invoice-pdf";
 import {
   estTerminee,
   MissionData,
   typeBonCommandeMission,
 } from "./utils/mission";
+import {
+  estStatutPaye,
+  notifierFacturePayee,
+  notifierMissionAssignee,
+  notifierNouvelleReservationHub,
+  scannerRappelsDepart1h,
+} from "./notifications/push";
 
 if (!admin.apps.length) {
   admin.initializeApp();
@@ -27,14 +32,6 @@ const CF_OPTS = {
   timeoutSeconds: 120,
   serviceAccount: "kelegance@appspot.gserviceaccount.com",
 };
-
-async function assurerPdf(document: DocumentPublie) {
-  if (document.pdfBase64) return;
-  const pdfBuffer = document.htmlContenu
-    ? await genererPdfDepuisHtml(document.htmlContenu)
-    : await genererPdfDocument(document.type, document.donnees);
-  document.pdfBase64 = pdfBuffer.toString("base64");
-}
 
 /**
  * Dès qu'une mission est créée (réservation planifiée ou course instantanée) :
@@ -51,6 +48,24 @@ export const onMissionCreee = functions
 
     if (!mission) {
       logger.warn("Mission créée sans données", { missionId });
+      return;
+    }
+
+    if (mission.source === "hub_qr") {
+      try {
+        await notifierNouvelleReservationHub(missionId, mission as Record<string, unknown>);
+        const envoi = await envoyerAlerteReservationHub(db, missionId, mission);
+        await missionRef.update({
+          notificationAdmin: "Réservation QR reçue",
+          notificationAdminAt: admin.firestore.FieldValue.serverTimestamp(),
+          alerteEmailAdmin: envoi.envoye,
+          alerteEmailAdminMethode: envoi.methode,
+        });
+        logger.info("Réservation hub QR traitée", { missionId, email: envoi.envoye });
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        logger.error("Échec traitement réservation hub", { missionId, message });
+      }
       return;
     }
 
@@ -91,8 +106,6 @@ export const onMissionCreee = functions
       if (!bonCommande) {
         throw new Error("Bon de commande introuvable après publication");
       }
-
-      await assurerPdf(bonCommande);
 
       const envoi = await envoyerBonCommandeParEmail(db, bonCommande);
 
@@ -209,8 +222,6 @@ export const onMissionTerminee = functions
         throw new Error("Facture introuvable après publication");
       }
 
-      await assurerPdf(facture);
-
       const envoi = await envoyerFactureParEmail(db, facture);
 
       await missionRef.update({
@@ -254,4 +265,57 @@ export const onMissionTerminee = functions
         });
       }
     }
+  });
+
+/**
+ * Push FCM — nouvelle mission assignée à un chauffeur.
+ */
+export const onMissionAssigneePush = functions
+  .region("europe-west1")
+  .firestore.document("missions/{missionId}")
+  .onWrite(async (change, context) => {
+    const apres = change.after.exists ? (change.after.data() as MissionData | undefined) : undefined;
+    if (!apres) return;
+
+    const avant = change.before.exists ? (change.before.data() as MissionData | undefined) : undefined;
+    const assigneApres = String(apres.chauffeurAssigne ?? "").trim();
+    const assigneAvant = String(avant?.chauffeurAssigne ?? "").trim();
+
+    if (!assigneApres || assigneApres === assigneAvant) return;
+
+    const statut = String(apres.statut ?? "").toUpperCase();
+    if (statut.includes("ANNUL") || statut.includes("TERMIN")) return;
+
+    await notifierMissionAssignee(context.params.missionId, apres as Record<string, unknown>, assigneApres);
+  });
+
+/**
+ * Push FCM — facture passée au statut Payée (Bras Droit).
+ */
+export const onFacturePayeePush = functions
+  .region("europe-west1")
+  .firestore.document("factures/{factureId}")
+  .onUpdate(async (change, context) => {
+    const avant = change.before.data() as Record<string, unknown> | undefined;
+    const apres = change.after.data() as Record<string, unknown> | undefined;
+    if (!avant || !apres) return;
+
+    if (estStatutPaye(String(avant.statut ?? ""))) return;
+    if (!estStatutPaye(String(apres.statut ?? ""))) return;
+
+    await notifierFacturePayee(context.params.factureId, apres);
+  });
+
+/**
+ * Rappels départ 1 h avant — scan planifié toutes les 15 min (Europe/Paris).
+ * Complète les notifications locales planifiées côté app.
+ */
+export const rappelDepart1hPlanifie = functions
+  .region("europe-west1")
+  .pubsub.schedule("every 15 minutes")
+  .timeZone("Europe/Paris")
+  .onRun(async () => {
+    const envoyes = await scannerRappelsDepart1h();
+    logger.info("Rappels départ 1h", { envoyes });
+    return null;
   });

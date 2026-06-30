@@ -13,6 +13,9 @@
     <uses-permission android:name="android.permission.SCHEDULE_EXACT_ALARM"/>
     <uses-permission android:name="android.permission.USE_EXACT_ALARM"/>
     <uses-permission android:name="android.permission.VIBRATE"/>
+    <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES"/>
+    <uses-permission android:name="android.permission.CAMERA"/>
+    <uses-permission android:name="android.permission.READ_MEDIA_IMAGES"/>
 
     <application
         android:label="Kelegance"
@@ -48,6 +51,7 @@
                 <data android:scheme="https" android:host="cheerful-salamander-565dfc.netlify.app" android:pathPrefix="/gestion"/>
                 <data android:scheme="https" android:host="kelegance.web.app" android:pathPrefix="/reserver"/>
                 <data android:scheme="https" android:host="kelegance.web.app" android:pathPrefix="/gestion"/>
+                <data android:scheme="https" android:host="kelegance.web.app" android:pathPrefix="/chauffeur"/>
                 <data android:scheme="https" android:host="kelegance.web.app" android:pathPrefix="/mappy"/>
             </intent-filter>
         </activity>
@@ -55,6 +59,16 @@
         <meta-data
             android:name="flutterEmbedding"
             android:value="2" />
+
+        <provider
+            android:name="androidx.core.content.FileProvider"
+            android:authorities="${applicationId}.fileprovider"
+            android:exported="false"
+            android:grantUriPermissions="true">
+            <meta-data
+                android:name="android.support.FILE_PROVIDER_PATHS"
+                android:resource="@xml/filepaths" />
+        </provider>
 
         <receiver android:exported="false" android:name="com.dexterous.flutterlocalnotifications.ScheduledNotificationReceiver" />
         <receiver android:exported="false" android:name="com.dexterous.flutterlocalnotifications.ScheduledNotificationBootReceiver">

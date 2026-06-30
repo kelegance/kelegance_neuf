@@ -4,7 +4,7 @@ import { defineString } from "firebase-functions/params";
 import nodemailer from "nodemailer";
 import { KELEGANCE_IDENTITE } from "../constants";
 import { DocumentPublie } from "../documents/invoice-service";
-import { nomFichierPdf } from "../documents/invoice-pdf";
+import { MissionData } from "../utils/mission";
 
 const smtpHost = defineString("SMTP_HOST", { default: "smtp.gmail.com" });
 const smtpPort = defineString("SMTP_PORT", { default: "587" });
@@ -34,14 +34,6 @@ function creerTransporteur() {
   });
 }
 
-function pieceJointe(document: DocumentPublie) {
-  return {
-    filename: nomFichierPdf(document.type, document.numeroDocument),
-    content: Buffer.from(document.pdfBase64, "base64"),
-    contentType: "application/pdf",
-  };
-}
-
 function corpsEmailBonCommande(document: DocumentPublie): string {
   const d = document.donnees;
   return `
@@ -53,10 +45,10 @@ function corpsEmailBonCommande(document: DocumentPublie): string {
       <p>Montant TTC : <strong>${d.prixTtc.toFixed(2)} €</strong></p>
       <p style="margin:24px 0">
         <a href="${document.lienWeb}" style="background:#D4AF37;color:#0B1426;padding:12px 20px;text-decoration:none;border-radius:6px;font-weight:600">
-          Consulter le bon de commande
+          Consulter le bon de commande électronique
         </a>
       </p>
-      <p style="font-size:12px;color:#666">Le PDF de votre bon de commande est joint à cet e-mail.</p>
+      <p style="font-size:12px;color:#666">Votre document est disponible en ligne via le lien ci-dessus — facturation 100 % électronique.</p>
       <hr style="border:none;border-top:1px solid #eee;margin:24px 0">
       <p style="font-size:11px;color:#888">${KELEGANCE_IDENTITE.exploitant} — ${KELEGANCE_IDENTITE.emailAdmin}</p>
     </div>`;
@@ -73,10 +65,10 @@ function corpsEmailFacture(document: DocumentPublie): string {
       <p>Montant TTC : <strong>${d.prixTtc.toFixed(2)} €</strong></p>
       <p style="margin:24px 0">
         <a href="${document.lienWeb}" style="background:#0B1426;color:#D4AF37;padding:12px 20px;text-decoration:none;border-radius:6px;font-weight:600;border:1px solid #D4AF37">
-          Consulter la facture
+          Consulter la facture électronique
         </a>
       </p>
-      <p style="font-size:12px;color:#666">Le PDF de votre facture est joint à cet e-mail.</p>
+      <p style="font-size:12px;color:#666">Votre facture est consultable en ligne via le lien ci-dessus — aucun PDF joint.</p>
       <hr style="border:none;border-top:1px solid #eee;margin:24px 0">
       <p style="font-size:11px;color:#888">${KELEGANCE_IDENTITE.exploitant} — ${KELEGANCE_IDENTITE.emailAdmin}</p>
     </div>`;
@@ -97,7 +89,6 @@ async function envoyerDocumentParEmail(
     };
   }
 
-  const attachment = pieceJointe(document);
   const transporteur = creerTransporteur();
 
   if (transporteur) {
@@ -107,7 +98,6 @@ async function envoyerDocumentParEmail(
         to: destinataire,
         subject: options.sujet,
         html: options.html,
-        attachments: [attachment],
       });
       logger.info("Document envoyé par SMTP", {
         destinataire,
@@ -127,13 +117,6 @@ async function envoyerDocumentParEmail(
       message: {
         subject: options.sujet,
         html: options.html,
-        attachments: [
-          {
-            filename: attachment.filename,
-            content: (attachment.content as Buffer).toString("base64"),
-            encoding: "base64",
-          },
-        ],
       },
       createdAt: admin.firestore.FieldValue.serverTimestamp(),
       source: options.source,
@@ -169,4 +152,74 @@ export async function envoyerFactureParEmail(
     html: corpsEmailFacture(facture),
     source: "cloud_function_facture_auto",
   });
+}
+
+function corpsEmailAlerteHub(missionId: string, mission: MissionData): string {
+  const depart = String(mission.depart ?? "—");
+  const destination = String(mission.destination ?? "—");
+  const date = String(mission.date ?? "—");
+  const heure = String(mission.heure ?? "—");
+  const passagers = String(mission.passagers ?? "1");
+  const contact =
+    String(mission.contactHub ?? "").trim() ||
+    String(mission.phone ?? "").trim() ||
+    String(mission.email ?? "").trim() ||
+    "—";
+  return `
+    <div style="font-family:Segoe UI,Arial,sans-serif;color:#0B1426;max-width:560px;margin:0 auto">
+      <h1 style="color:#D4AF37;font-weight:300;letter-spacing:2px">KELEGANCE PRESTIGE</h1>
+      <p><strong>Nouvelle réservation via carte QR</strong></p>
+      <p>Réf. mission : <code>${missionId}</code></p>
+      <ul style="line-height:1.7">
+        <li><strong>Contact :</strong> ${contact}</li>
+        <li><strong>Date :</strong> ${date}</li>
+        <li><strong>Heure :</strong> ${heure}</li>
+        <li><strong>Départ :</strong> ${depart}</li>
+        <li><strong>Destination :</strong> ${destination}</li>
+        <li><strong>Passagers :</strong> ${passagers}</li>
+      </ul>
+      <p style="font-size:12px;color:#666">Statut : EN ATTENTE — à confirmer dans la console de gestion.</p>
+    </div>`;
+}
+
+/** Alerte e-mail admin — réservation borne QR (carte de visite). */
+export async function envoyerAlerteReservationHub(
+  db: admin.firestore.Firestore,
+  missionId: string,
+  mission: MissionData,
+): Promise<EnvoiDocumentsResultat> {
+  const destinataire = KELEGANCE_IDENTITE.emailAdmin;
+  const html = corpsEmailAlerteHub(missionId, mission);
+  const sujet = `Kélégance — Réservation QR ${String(mission.date ?? "")} ${String(mission.heure ?? "")}`;
+
+  const transporteur = creerTransporteur();
+  if (transporteur) {
+    try {
+      await transporteur.sendMail({
+        from: smtpFrom.value(),
+        to: destinataire,
+        subject: sujet,
+        html,
+      });
+      logger.info("Alerte réservation hub envoyée par SMTP", { missionId, destinataire });
+      return { envoye: true, methode: "smtp", destinataire };
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      logger.error("Échec SMTP alerte hub", { missionId, message });
+    }
+  }
+
+  try {
+    await db.collection("mail").add({
+      to: destinataire,
+      message: { subject: sujet, html },
+      createdAt: admin.firestore.FieldValue.serverTimestamp(),
+      source: "cloud_function_hub_reservation",
+      missionId,
+    });
+    return { envoye: true, methode: "mail_collection", destinataire };
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    return { envoye: false, methode: "aucune", destinataire, erreur: message };
+  }
 }

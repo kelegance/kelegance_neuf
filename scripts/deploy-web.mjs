@@ -5,7 +5,10 @@
 import { spawnSync } from 'node:child_process';
 import { existsSync } from 'node:fs';
 import { join } from 'node:path';
-import { verifierAuthFirebase } from './firebase-token.mjs';
+import { chargerTokenFirebase } from './firebase-token.mjs';
+import { preparerEnvironnementFirebase } from './firebase-env.mjs';
+
+preparerEnvironnementFirebase();
 
 const root = process.cwd();
 const buildDir = join(root, 'build', 'web');
@@ -46,8 +49,20 @@ console.log('Kelegance — déploiement web (Flutter + Firebase Hosting)');
 if (skipBuild) {
   console.log('(SKIP_FLUTTER_BUILD=1 — build Flutter ignoré)');
 } else {
-  run('flutter', ['build', 'web', '--release'], 'flutter build web --release');
-  run('node', ['scripts/strip-service-worker.mjs'], 'Désactivation service worker Flutter');
+  const webOrigin = process.env.KELEGANCE_WEB_ORIGIN || 'https://kelegance.web.app';
+  const googleMapsKey = process.env.GOOGLE_MAPS_API_KEY || 'AIzaSyCM_g7NBu0L8WZDi8SuJTyt2wiilbCvfmI';
+  run(
+    'flutter',
+    [
+      'build',
+      'web',
+      '--release',
+      `--dart-define=KELEGANCE_WEB_ORIGIN=${webOrigin}`,
+      `--dart-define=GOOGLE_MAPS_API_KEY=${googleMapsKey}`,
+    ],
+    'flutter build web --release',
+  );
+  run('node', ['scripts/prepare-web-build.mjs'], 'Préparation PWA (version + service worker)');
 }
 
 if (!existsSync(buildDir)) {
@@ -56,12 +71,17 @@ if (!existsSync(buildDir)) {
 }
 
 verifierBuild();
-verifierAuthFirebase(root);
+
+if (chargerTokenFirebase(root)) {
+  console.log('✓ Authentification Firebase CI (token chargé)');
+} else {
+  console.log('(Token CI absent — utilisation des identifiants Firebase locaux)');
+}
 
 run('npx', ['firebase', 'deploy', '--only', 'hosting'], 'firebase deploy --only hosting');
 
-console.log('\n✓ Déploiement terminé.');
+console.log('\n✓ Déploiement PWA terminé.');
 console.log('  Application : https://kelegance.web.app');
-console.log('  QR client   : https://kelegance.web.app/reserver');
-console.log('  Test auto   : npm run test:deeplinks');
-console.log('  Checklist   : docs/checklist-deep-links-pwa.md\n');
+console.log('  iPhone PWA  : https://kelegance.web.app/gestion?profil=bras_droit');
+console.log('  Android APK : npm run deploy:android && npm run deploy:hosting:firebase');
+console.log('  Test auto   : npm run test:deeplinks\n');

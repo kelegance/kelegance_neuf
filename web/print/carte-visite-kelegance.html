@@ -1,0 +1,466 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8">
+  <title>KELEGANCE — Cartes de visite (BAT imprimeur)</title>
+  <!--
+    BAT IMPRIMEUR — Carte 85 × 55 mm (+ fond perdu 3 mm = 91 × 61 mm)
+    Charte : #0A0A0A · #D4AF37 · #F5F0E6
+
+    Export PDF 2 pages (Recto p.1 · Verso p.2) :
+      npm run export:cartes-visite
+    Ou Chrome : Ctrl+P → 91×61 mm · Marges aucune · Graphismes arrière-plan activés
+
+    QR verso : Hub Client (réservation & PWA)
+  -->
+  <style>
+    :root {
+      --noir: #0A0A0A;
+      --noir-clair: #141414;
+      --or: #D4AF37;
+      --or-doux: rgba(212, 175, 55, 0.72);
+      --blanc: #F5F0E6;
+      --blanc-muted: rgba(245, 240, 230, 0.55);
+      --trim-w: 85mm;
+      --trim-h: 55mm;
+      --bleed: 3mm;
+      --page-w: calc(var(--trim-w) + 2 * var(--bleed));
+      --page-h: calc(var(--trim-h) + 2 * var(--bleed));
+      --safe: 3mm;
+    }
+
+    @page {
+      size: 91mm 61mm;
+      margin: 0;
+    }
+
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      background: #2a2a2a;
+      font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif;
+      -webkit-print-color-adjust: exact;
+      print-color-adjust: exact;
+      color: var(--blanc);
+    }
+
+    .ecran-aide {
+      max-width: 960px;
+      margin: 0 auto;
+      padding: 16px 20px 28px;
+      color: #aaa;
+      font-size: 12px;
+      line-height: 1.55;
+    }
+
+    .ecran-aide h1 {
+      color: var(--or);
+      font-size: 15px;
+      font-weight: 500;
+      letter-spacing: 0.12em;
+      margin-bottom: 8px;
+    }
+
+    .ecran-aide code {
+      background: #111;
+      padding: 1px 5px;
+      border-radius: 3px;
+      color: #ddd;
+    }
+
+    .selecteur {
+      margin: 14px 0 20px;
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+    }
+
+    .selecteur button {
+      background: transparent;
+      border: 1px solid var(--or-doux);
+      color: var(--or);
+      padding: 8px 14px;
+      font-size: 11px;
+      letter-spacing: 0.06em;
+      cursor: pointer;
+      border-radius: 4px;
+    }
+
+    .selecteur button.actif,
+    .selecteur button:hover {
+      background: var(--or);
+      color: var(--noir);
+    }
+
+    .planche {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 14mm;
+      padding: 8mm 10mm 16mm;
+    }
+
+    .jeu {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 5mm;
+    }
+
+    .jeu.masque { display: none !important; }
+
+    .etiquette {
+      width: var(--page-w);
+      text-align: center;
+      color: #777;
+      font-size: 9pt;
+      letter-spacing: 0.04em;
+    }
+
+    /* ——— Page imprimable (fond perdu inclus) ——— */
+    .page {
+      width: var(--page-w);
+      height: var(--page-h);
+      position: relative;
+      overflow: hidden;
+      background: var(--noir);
+      page-break-inside: avoid;
+      break-inside: avoid;
+    }
+
+    .page + .page {
+      page-break-before: always;
+      break-before: page;
+    }
+
+    /* Zone de rognage (trait de coupe — écran uniquement) */
+    .page::before {
+      content: '';
+      position: absolute;
+      inset: var(--bleed);
+      border: 0.15mm dashed rgba(212, 175, 55, 0.35);
+      pointer-events: none;
+      z-index: 5;
+    }
+
+    /* Zone sûre */
+    .trim {
+      position: absolute;
+      inset: var(--bleed);
+      width: var(--trim-w);
+      height: var(--trim-h);
+      overflow: hidden;
+    }
+
+    /* ——— RECTO ——— */
+    .recto .trim {
+      background: var(--noir);
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      text-align: center;
+      padding: calc(var(--safe) + 1mm) calc(var(--safe) + 2mm);
+    }
+
+    .recto .filet-haut,
+    .recto .filet-bas {
+      position: absolute;
+      left: 8mm;
+      right: 8mm;
+      height: 0.2mm;
+      background: linear-gradient(90deg, transparent, var(--or-doux), transparent);
+    }
+
+    .recto .filet-haut { top: 5mm; }
+    .recto .filet-bas { bottom: 5mm; }
+
+    .logo-wrap {
+      width: 13mm;
+      height: 13mm;
+      border-radius: 50%;
+      border: 0.35mm solid var(--or);
+      padding: 0.8mm;
+      margin-bottom: 2.8mm;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      background: rgba(212, 175, 55, 0.06);
+    }
+
+    .logo-wrap img {
+      width: 100%;
+      height: 100%;
+      object-fit: contain;
+      border-radius: 50%;
+    }
+
+    .marque {
+      font-size: 9.2pt;
+      letter-spacing: 0.42em;
+      text-indent: 0.42em;
+      color: var(--or);
+      font-weight: 400;
+      margin-bottom: 3.5mm;
+    }
+
+    .slogan-court {
+      font-size: 4.8pt;
+      color: var(--blanc-muted);
+      letter-spacing: 0.22em;
+      text-transform: uppercase;
+      margin-bottom: 4mm;
+    }
+
+    .nom {
+      font-size: 8.6pt;
+      color: var(--blanc);
+      letter-spacing: 0.1em;
+      font-weight: 300;
+      margin-bottom: 1.8mm;
+    }
+
+    .fonction {
+      font-size: 5.8pt;
+      color: var(--or-doux);
+      letter-spacing: 0.2em;
+      text-transform: uppercase;
+      font-weight: 400;
+      margin-bottom: 3.5mm;
+    }
+
+    .contacts {
+      display: flex;
+      flex-direction: column;
+      gap: 1.2mm;
+      margin-top: 0.5mm;
+    }
+
+    .contact-ligne {
+      font-size: 5.4pt;
+      color: var(--blanc-muted);
+      letter-spacing: 0.06em;
+      font-weight: 300;
+      line-height: 1.35;
+    }
+
+    .contact-ligne strong {
+      color: rgba(245, 240, 230, 0.72);
+      font-weight: 400;
+    }
+
+    /* ——— VERSO ——— */
+    .verso .trim {
+      background: linear-gradient(165deg, var(--noir) 0%, var(--noir-clair) 100%);
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      padding: calc(var(--safe) + 1mm);
+    }
+
+    .qr-cadre {
+      position: relative;
+      padding: 1.8mm;
+      background: #fff;
+      margin-bottom: 3mm;
+      box-shadow: 0 0 0 0.25mm var(--or-doux);
+    }
+
+    .qr-cadre::before {
+      content: '';
+      position: absolute;
+      inset: -1.2mm;
+      border: 0.2mm solid rgba(212, 175, 55, 0.45);
+      pointer-events: none;
+    }
+
+    .qr-cadre img {
+      width: 24mm;
+      height: 24mm;
+      display: block;
+    }
+
+    .mention {
+      font-size: 5.6pt;
+      color: var(--or);
+      letter-spacing: 0.16em;
+      text-transform: uppercase;
+      text-align: center;
+      line-height: 1.55;
+      max-width: 68mm;
+      font-weight: 400;
+    }
+
+    .scan {
+      margin-top: 2mm;
+      font-size: 4.6pt;
+      color: var(--blanc-muted);
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+    }
+
+    .url {
+      margin-top: 1.5mm;
+      font-size: 4.2pt;
+      color: rgba(245, 240, 230, 0.38);
+      letter-spacing: 0.04em;
+    }
+
+    @media print {
+      body { background: white; }
+      .ecran-aide { display: none !important; }
+      .planche { padding: 0; gap: 0; }
+      .jeu { gap: 0; }
+      .etiquette { display: none !important; }
+      .page::before { display: none; }
+      .page { margin: 0; }
+    }
+  </style>
+</head>
+<body>
+
+  <div class="ecran-aide">
+    <h1>KELEGANCE — BAT CARTES DE VISITE</h1>
+    <p>
+      Format rognage <strong>85 × 55 mm</strong> · Fond perdu <strong>3 mm</strong> · Page PDF <strong>91 × 61 mm</strong> ·
+      Zone sûre <strong>3 mm</strong> · QR Hub Client.
+    </p>
+    Export PDF Recto / Verso séparés : <code>npm run export:cartes-visite</code> → <code>web/print/pdf/carte-*-recto.pdf</code> et <code>*-verso.pdf</code>
+    <div class="selecteur" id="selecteur"></div>
+  </div>
+
+  <div class="planche" id="planche"></div>
+
+  <script>
+    const ORIGINE = 'https://cheerful-salamander-565dfc.netlify.app';
+    const QR_HUB_CLIENT = ORIGINE + '/hub';
+
+    const CARTES = [
+      {
+        id: 'nicolas',
+        nom: 'Nicolas Bordelais',
+        fonction: 'Direction & Opérations',
+        email: 'admin@kelegance-prestige.com',
+        tel: '',
+      },
+      {
+        id: 'deborah',
+        nom: 'Déborah Jetil',
+        fonction: 'Direction & Opérations',
+        email: 'deborah.jetil@gmail.com',
+        tel: '06 65 58 73 60',
+      },
+      {
+        id: 'linel',
+        nom: 'Marc Alexandre Linel',
+        fonction: 'Direction & Opérations',
+        email: 'linel.marcalexandrepro@gmail.com',
+        tel: '06 72 16 69 53',
+      },
+    ];
+
+    function qrUrl(data) {
+      return 'https://api.qrserver.com/v1/create-qr-code/?size=600x600&margin=10&color=0A0A0A&bgcolor=FFFFFF&data='
+        + encodeURIComponent(data);
+    }
+
+    function contactHtml(carte) {
+      const lignes = [];
+      if (carte.tel) lignes.push('<p class="contact-ligne"><strong>Tél.</strong> ' + carte.tel + '</p>');
+      if (carte.email) lignes.push('<p class="contact-ligne"><strong>E-mail</strong> ' + carte.email + '</p>');
+      return lignes.join('');
+    }
+
+    function pageRecto(carte) {
+      return `
+        <div class="page recto" data-face="recto">
+          <div class="trim">
+            <div class="filet-haut"></div>
+            <div class="filet-bas"></div>
+            <div class="logo-wrap">
+              <img src="../icons/Icon-512.png" alt="KELEGANCE" width="512" height="512">
+            </div>
+            <div class="marque">KELEGANCE</div>
+            <p class="slogan-court">Transferts premium</p>
+            <p class="nom">${carte.nom}</p>
+            <div class="fonction">${carte.fonction}</div>
+            <div class="contacts">${contactHtml(carte)}</div>
+          </div>
+        </div>`;
+    }
+
+    function pageVerso() {
+      const qr = qrUrl(QR_HUB_CLIENT);
+      const urlCourte = 'kelegance.netlify.app/hub';
+      return `
+        <div class="page verso" data-face="verso">
+          <div class="trim">
+            <div class="qr-cadre">
+              <img src="${qr}" width="600" height="600" alt="QR Hub Client KELEGANCE">
+            </div>
+            <p class="mention">Spécialistes Transferts<br>Aéroports &amp; Gares</p>
+            <p class="scan">Scannez · Réservez votre trajet</p>
+            <p class="url">${urlCourte}</p>
+          </div>
+        </div>`;
+    }
+
+    function jeuHtml(carte, idx) {
+      return `
+        <div class="jeu" data-person="${carte.id}" id="jeu-${carte.id}">
+          <p class="etiquette">Version ${idx + 1} — ${carte.nom} · Page 1 Recto</p>
+          ${pageRecto(carte)}
+          <p class="etiquette">Version ${idx + 1} — ${carte.nom} · Page 2 Verso</p>
+          ${pageVerso()}
+        </div>`;
+    }
+
+    const planche = document.getElementById('planche');
+    planche.innerHTML = CARTES.map(jeuHtml).join('');
+
+    const params = new URLSearchParams(location.search);
+    const exportId = params.get('export');
+    const exportFace = params.get('face');
+
+    function filtrer(id) {
+      document.querySelectorAll('.jeu').forEach((el) => {
+        el.classList.toggle('masque', id !== null && el.dataset.person !== id);
+      });
+      document.querySelectorAll('.selecteur button').forEach((btn) => {
+        btn.classList.toggle('actif', btn.dataset.id === id);
+      });
+    }
+
+    const selecteur = document.getElementById('selecteur');
+    const btnTous = document.createElement('button');
+    btnTous.textContent = 'Toutes les versions';
+    btnTous.dataset.id = 'all';
+    btnTous.onclick = () => filtrer(null);
+    selecteur.appendChild(btnTous);
+
+    CARTES.forEach((c) => {
+      const btn = document.createElement('button');
+      btn.textContent = c.nom;
+      btn.dataset.id = c.id;
+      btn.onclick = () => filtrer(c.id);
+      selecteur.appendChild(btn);
+    });
+
+    if (exportId && CARTES.some((c) => c.id === exportId)) {
+      filtrer(exportId);
+      document.querySelector('.ecran-aide').style.display = 'none';
+    }
+
+    if (exportFace === 'recto' || exportFace === 'verso') {
+      document.querySelectorAll('.page').forEach((el) => {
+        const face = el.dataset.face;
+        el.style.display = face === exportFace ? '' : 'none';
+      });
+      document.querySelectorAll('.etiquette').forEach((el) => {
+        el.style.display = 'none';
+      });
+    }
+  </script>
+</body>
+</html>

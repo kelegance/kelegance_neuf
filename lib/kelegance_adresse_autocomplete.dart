@@ -1,10 +1,11 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
 import 'kelegance_places_service.dart';
 
-/// Champ d'adresse avec menu déroulant de suggestions (Google Places).
+/// Champ d'adresse avec suggestions Google Places — liste inline (fiable sur Android).
 class KeleganceAdresseAutocomplete extends StatefulWidget {
   const KeleganceAdresseAutocomplete({
     super.key,
@@ -16,6 +17,8 @@ class KeleganceAdresseAutocomplete extends StatefulWidget {
     this.onEdited,
     this.onSelected,
   });
+
+  static const double hauteurListeSuggestions = 220;
 
   final TextEditingController controller;
   final String? hintText;
@@ -31,11 +34,17 @@ class KeleganceAdresseAutocomplete extends StatefulWidget {
 
 class _KeleganceAdresseAutocompleteState extends State<KeleganceAdresseAutocomplete> {
   final FocusNode _focusNode = FocusNode();
-  final LayerLink _layerLink = LayerLink();
-  OverlayEntry? _overlayEntry;
   List<String> _suggestions = [];
   Timer? _debounce;
+  Timer? _fermetureListe;
   int _generation = 0;
+  bool _chargementEnCours = false;
+  bool _selectionEnCours = false;
+
+  bool get _panneauVisible =>
+      _focusNode.hasFocus &&
+      !_selectionEnCours &&
+      (widget.controller.text.trim().length >= 2 || _chargementEnCours);
 
   @override
   void initState() {
@@ -47,7 +56,7 @@ class _KeleganceAdresseAutocompleteState extends State<KeleganceAdresseAutocompl
   @override
   void dispose() {
     _debounce?.cancel();
-    _retirerOverlay();
+    _fermetureListe?.cancel();
     widget.controller.removeListener(_onTextChanged);
     _focusNode.removeListener(_onFocusChanged);
     _focusNode.dispose();
@@ -55,14 +64,30 @@ class _KeleganceAdresseAutocompleteState extends State<KeleganceAdresseAutocompl
   }
 
   void _onFocusChanged() {
-    if (!_focusNode.hasFocus) {
-      Future<void>.delayed(const Duration(milliseconds: 150), () {
-        if (!_focusNode.hasFocus) _retirerOverlay();
-      });
+    if (_selectionEnCours) return;
+    setState(() {});
+
+    if (_focusNode.hasFocus) {
+      _fermetureListe?.cancel();
+      final query = widget.controller.text.trim();
+      if (query.length >= 2) {
+        unawaited(_chargerSuggestions(query));
+      }
+      return;
     }
+
+    _fermetureListe?.cancel();
+    _fermetureListe = Timer(const Duration(milliseconds: 350), () {
+      if (!mounted || _selectionEnCours || _focusNode.hasFocus) return;
+      setState(() {
+        _suggestions = [];
+        _chargementEnCours = false;
+      });
+    });
   }
 
   void _onTextChanged() {
+    if (_selectionEnCours) return;
     widget.onEdited?.call();
     _debounce?.cancel();
     _debounce = Timer(const Duration(milliseconds: 280), () {
@@ -71,90 +96,51 @@ class _KeleganceAdresseAutocompleteState extends State<KeleganceAdresseAutocompl
   }
 
   Future<void> _chargerSuggestions(String text) async {
-    final generation = ++_generation;
-    final results = await KelegancePlacesService.rechercherSuggestions(text);
-    if (!mounted || generation != _generation) return;
-
-    setState(() => _suggestions = results);
-    if (_focusNode.hasFocus && results.isNotEmpty) {
-      _afficherOverlay();
-    } else {
-      _retirerOverlay();
+    final query = text.trim();
+    if (query.length < 2) {
+      if (!mounted) return;
+      setState(() {
+        _suggestions = [];
+        _chargementEnCours = false;
+      });
+      return;
     }
+
+    final generation = ++_generation;
+    if (mounted) setState(() => _chargementEnCours = true);
+
+    final results = await KelegancePlacesService.rechercherSuggestions(query);
+    if (!mounted || generation != _generation || _selectionEnCours) return;
+
+    setState(() {
+      _suggestions = results;
+      _chargementEnCours = false;
+    });
   }
 
-  void _afficherOverlay() {
-    _retirerOverlay();
-    if (_suggestions.isEmpty || !_focusNode.hasFocus) return;
+  void selectionnerAdresse(String adresse) {
+    if (adresse.trim().isEmpty || _selectionEnCours) return;
 
-    _overlayEntry = OverlayEntry(
-      builder: (ctx) => Positioned(
-        width: _largeurChamp(ctx),
-        child: CompositedTransformFollower(
-          link: _layerLink,
-          showWhenUnlinked: false,
-          offset: const Offset(0, 52),
-          child: Material(
-            elevation: 8,
-            color: const Color(0xFF1A2332),
-            borderRadius: BorderRadius.circular(8),
-            child: ConstrainedBox(
-              constraints: const BoxConstraints(maxHeight: 220),
-              child: ListView.separated(
-                padding: EdgeInsets.zero,
-                shrinkWrap: true,
-                itemCount: _suggestions.length,
-                separatorBuilder: (_, __) => const Divider(height: 1, color: Colors.white12),
-                itemBuilder: (_, index) {
-                  final suggestion = _suggestions[index];
-                  return InkWell(
-                    onTap: () => _selectionner(suggestion),
-                    child: Padding(
-                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-                      child: Row(
-                        children: [
-                          const Icon(Icons.place_outlined, color: Colors.amber, size: 16),
-                          const SizedBox(width: 8),
-                          Expanded(
-                            child: Text(
-                              suggestion,
-                              style: const TextStyle(color: Colors.white, fontSize: 13),
-                              maxLines: 2,
-                              overflow: TextOverflow.ellipsis,
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                  );
-                },
-              ),
-            ),
-          ),
-        ),
-      ),
-    );
+    _selectionEnCours = true;
+    _debounce?.cancel();
+    _fermetureListe?.cancel();
+    FocusManager.instance.primaryFocus?.unfocus();
+    SystemChannels.textInput.invokeMethod<void>('TextInput.hide');
 
-    Overlay.of(context).insert(_overlayEntry!);
-  }
-
-  double _largeurChamp(BuildContext ctx) {
-    final box = context.findRenderObject() as RenderBox?;
-    return box?.size.width ?? MediaQuery.sizeOf(ctx).width - 32;
-  }
-
-  void _retirerOverlay() {
-    _overlayEntry?.remove();
-    _overlayEntry = null;
-  }
-
-  void _selectionner(String adresse) {
     widget.controller.text = adresse;
     widget.controller.selection = TextSelection.collapsed(offset: adresse.length);
     widget.onSelected?.call(adresse);
-    setState(() => _suggestions = []);
-    _retirerOverlay();
+
+    setState(() {
+      _suggestions = [];
+      _chargementEnCours = false;
+    });
+
     _focusNode.unfocus();
+
+    Future<void>.delayed(const Duration(milliseconds: 120), () {
+      if (mounted) setState(() => _selectionEnCours = false);
+    });
   }
 
   InputDecoration _decorationParDefaut() {
@@ -175,22 +161,101 @@ class _KeleganceAdresseAutocompleteState extends State<KeleganceAdresseAutocompl
       ),
       contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
       isDense: true,
+      suffixIcon: _chargementEnCours
+          ? const Padding(
+              padding: EdgeInsets.all(12),
+              child: SizedBox(
+                width: 18,
+                height: 18,
+                child: CircularProgressIndicator(strokeWidth: 2, color: Colors.amber),
+              ),
+            )
+          : const Icon(Icons.search, color: Colors.white38, size: 20),
+    );
+  }
+
+  Widget _buildListeSuggestions() {
+    if (_chargementEnCours && _suggestions.isEmpty) {
+      return const Center(
+        child: SizedBox(
+          width: 22,
+          height: 22,
+          child: CircularProgressIndicator(strokeWidth: 2, color: Colors.amber),
+        ),
+      );
+    }
+
+    if (_suggestions.isEmpty) {
+      return Center(
+        child: Text(
+          'Aucune suggestion — vérifiez Places API sur la clé Android',
+          textAlign: TextAlign.center,
+          style: TextStyle(color: Colors.white.withOpacity(0.35), fontSize: 11),
+        ),
+      );
+    }
+
+    return ListView.separated(
+      padding: EdgeInsets.zero,
+      physics: const ClampingScrollPhysics(),
+      itemCount: _suggestions.length,
+      separatorBuilder: (_, __) => const Divider(height: 1, color: Colors.white12),
+      itemBuilder: (_, index) {
+        final suggestion = _suggestions[index];
+        return Listener(
+          behavior: HitTestBehavior.opaque,
+          onPointerDown: (_) => selectionnerAdresse(suggestion),
+          child: ListTile(
+            dense: true,
+            visualDensity: VisualDensity.compact,
+            leading: const Icon(Icons.place_outlined, color: Colors.amber, size: 18),
+            title: Text(
+              suggestion,
+              style: const TextStyle(color: Colors.white, fontSize: 13),
+              maxLines: 2,
+              overflow: TextOverflow.ellipsis,
+            ),
+          ),
+        );
+      },
     );
   }
 
   @override
   Widget build(BuildContext context) {
-    return CompositedTransformTarget(
-      link: _layerLink,
-      child: TextField(
-        controller: widget.controller,
-        focusNode: _focusNode,
-        style: widget.style ?? const TextStyle(color: Colors.white),
-        decoration: widget.decoration ?? _decorationParDefaut(),
-        onTap: () {
-          if (_suggestions.isNotEmpty) _afficherOverlay();
-        },
-      ),
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        TextField(
+          controller: widget.controller,
+          focusNode: _focusNode,
+          style: widget.style ?? const TextStyle(color: Colors.white),
+          decoration: widget.decoration ?? _decorationParDefaut(),
+          onTap: () {
+            if (!_focusNode.hasFocus) {
+              _focusNode.requestFocus();
+            }
+            final query = widget.controller.text.trim();
+            if (query.length >= 2) {
+              unawaited(_chargerSuggestions(query));
+            }
+          },
+        ),
+        if (_panneauVisible) ...[
+          const SizedBox(height: 6),
+          Material(
+            elevation: 6,
+            borderRadius: BorderRadius.circular(8),
+            color: const Color(0xFF1A2332),
+            clipBehavior: Clip.antiAlias,
+            child: SizedBox(
+              height: KeleganceAdresseAutocomplete.hauteurListeSuggestions,
+              child: _buildListeSuggestions(),
+            ),
+          ),
+        ],
+      ],
     );
   }
 }

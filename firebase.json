@@ -20,11 +20,21 @@
     "ignore": [
       "firebase.json",
       "**/.*",
-      "**/node_modules/**"
+      "**/node_modules/**",
+      "**/admin_dashboard.apk"
     ],
     "headers": [
       {
         "source": "/index.html",
+        "headers": [
+          {
+            "key": "Cache-Control",
+            "value": "no-cache, no-store, must-revalidate"
+          }
+        ]
+      },
+      {
+        "source": "/app.html",
         "headers": [
           {
             "key": "Cache-Control",
@@ -40,6 +50,33 @@
             "value": "no-cache, no-store, must-revalidate"
           }
         ]
+      },
+      {
+        "source": "/version.json",
+        "headers": [
+          {
+            "key": "Cache-Control",
+            "value": "no-cache, no-store, must-revalidate"
+          }
+        ]
+      },
+      {
+        "source": "/kelegance-version-check.js",
+        "headers": [
+          {
+            "key": "Cache-Control",
+            "value": "no-cache, no-store, must-revalidate"
+          }
+        ]
+      },
+      {
+        "source": "/flutter_service_worker.js",
+        "headers": [
+          {
+            "key": "Cache-Control",
+            "value": "no-cache, no-store, must-revalidate"
+          }
+        ]
       }
     ],
     "rewrites": [
@@ -49,35 +86,59 @@
       },
       {
         "source": "/reserver",
-        "destination": "/index.html"
+        "destination": "/app.html"
       },
       {
         "source": "/reserver/**",
-        "destination": "/index.html"
+        "destination": "/app.html"
       },
       {
         "source": "/mappy",
-        "destination": "/index.html"
+        "destination": "/app.html"
       },
       {
         "source": "/mappy/**",
-        "destination": "/index.html"
+        "destination": "/app.html"
       },
       {
         "source": "/gestion",
-        "destination": "/index.html"
+        "destination": "/app.html"
       },
       {
         "source": "/gestion/**",
-        "destination": "/index.html"
+        "destination": "/app.html"
+      },
+      {
+        "source": "/chauffeur",
+        "destination": "/app.html"
+      },
+      {
+        "source": "/chauffeur/**",
+        "destination": "/app.html"
+      },
+      {
+        "source": "/console",
+        "destination": "/app.html"
+      },
+      {
+        "source": "/console/**",
+        "destination": "/app.html"
+      },
+      {
+        "source": "/hub",
+        "destination": "/hub/index.html"
+      },
+      {
+        "source": "/hub/**",
+        "destination": "/hub/index.html"
       },
       {
         "source": "/admin/qrcodes",
-        "destination": "/index.html"
+        "destination": "/app.html"
       },
       {
         "source": "/admin/qrcodes/**",
-        "destination": "/index.html"
+        "destination": "/app.html"
       }
     ]
   }
