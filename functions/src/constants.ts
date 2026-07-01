@@ -1,7 +1,7 @@
 /** Identité légale & contacts — miroir de kelegance_documents_pdf_service.dart */
 export const KELEGANCE_IDENTITE = {
   emailAdmin: "admin@kelegance-prestige.com",
-  whatsappPrestige: "+33 6 65 58 73 60",
+  whatsappPrestige: "+33 6 00 00 00 00",
   exploitant: "KELEGANCE",
   raisonSociale: "KELEGANCE",
   adresseSiege: "8 RUE AMPERE, 92000 NANTERRE FRANCE",

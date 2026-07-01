@@ -1,0 +1,38 @@
+{
+  "version": "1.0.0",
+  "chauffeurs": [
+    {
+      "cle": "nicolas",
+      "nom": "Nicolas",
+      "email": "nicolas.nbchauffeurs@gmail.com",
+      "aliases": ["nicolas", "nico"],
+      "telephone": "06 69 44 68 17",
+      "marque": "TESLA",
+      "modele": "MODEL Y",
+      "couleur": "Noir",
+      "plaque": "HG-351-ZY"
+    },
+    {
+      "cle": "deborah",
+      "nom": "Déborah Jetil",
+      "email": "deborah.jetil@gmail.com",
+      "aliases": ["deborah", "déborah", "deborah jetil", "déborah jetil"],
+      "telephone": "06 65 58 73 60",
+      "marque": "Volkswagen",
+      "modele": "Arteon Shooting Brake",
+      "couleur": "Gris antracite",
+      "plaque": "GH-892-PR"
+    },
+    {
+      "cle": "marc-alexandre",
+      "nom": "Marc-Alexandre",
+      "email": "linel.marcalexandrepro@gmail.com",
+      "aliases": ["marc-alexandre", "marc alexandre", "marc alexandre linel", "linel"],
+      "telephone": "06 72 16 69 53",
+      "marque": "TESLA",
+      "modele": "MODEL Y",
+      "couleur": "Noir",
+      "plaque": "HG-423-WH"
+    }
+  ]
+}

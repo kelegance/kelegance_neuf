@@ -109,6 +109,78 @@ export async function resoudreTokensParEmail(emailBrut: string): Promise<string[
   return [...tokens];
 }
 
+export async function resoudreTokensParUid(uid: string): Promise<string[]> {
+  const id = uid.trim();
+  if (!id) return [];
+
+  const tokens = new Set<string>();
+  const collect = (data: UserDoc | undefined) => {
+    const token = data?.fcmToken || data?.fcm_token;
+    if (token) tokens.add(token);
+  };
+
+  for (const col of ["users", "chauffeurs"] as const) {
+    const doc = await firestore().collection(col).doc(id).get();
+    if (doc.exists) collect(doc.data() as UserDoc);
+  }
+
+  return [...tokens];
+}
+
+/** Résout les tokens FCM d'un chauffeur via UID, e-mail ou nom affiché. */
+export async function resoudreTokensChauffeur(
+  identifiant: string,
+  uidHint?: string,
+): Promise<string[]> {
+  const tokens = new Set<string>();
+  const id = identifiant.trim();
+
+  if (uidHint) {
+    for (const token of await resoudreTokensParUid(uidHint)) {
+      tokens.add(token);
+    }
+  }
+
+  if (id.includes("@")) {
+    for (const token of await resoudreTokensParEmail(id)) {
+      tokens.add(token);
+    }
+    if (tokens.size > 0) return [...tokens];
+  }
+
+  if (id.length >= 20 && !id.includes(" ") && !id.includes("@")) {
+    for (const token of await resoudreTokensParUid(id)) {
+      tokens.add(token);
+    }
+    if (tokens.size > 0) return [...tokens];
+  }
+
+  const needle = id.toLowerCase();
+  if (needle.length >= 2) {
+    const chauffeurs = await firestore().collection("chauffeurs").get();
+    for (const doc of chauffeurs.docs) {
+      const data = doc.data() as UserDoc & { name?: string };
+      const name = String(data.name ?? "").toLowerCase().trim();
+      const email = String(data.email ?? "").toLowerCase().trim();
+      const match =
+        (name && (name.includes(needle) || needle.includes(name))) ||
+        (email && email === needle);
+      if (!match) continue;
+      for (const token of await resoudreTokensParUid(doc.id)) {
+        tokens.add(token);
+      }
+      const direct = data.fcmToken || data.fcm_token;
+      if (direct) tokens.add(direct);
+    }
+  }
+
+  for (const token of await resoudreTokensParEmail(id)) {
+    tokens.add(token);
+  }
+
+  return [...tokens];
+}
+
 export async function resoudreTokensBrasDroit(): Promise<{ token: string; prefs?: NotificationPrefs }[]> {
   const result: { token: string; prefs?: NotificationPrefs }[] = [];
   const seen = new Set<string>();
@@ -137,6 +209,45 @@ export async function resoudreTokensBrasDroit(): Promise<{ token: string; prefs?
   return result;
 }
 
+const SON_NOUVELLE_COURSE_ANDROID = "nouvelle_course";
+const SON_NOUVELLE_COURSE_IOS = "nouvelle_course.mp3";
+const CANAL_NOUVELLE_COURSE = "kelegance_nouvelle_course";
+
+function estNouvelleCourse(type?: string): boolean {
+  return type === "nouvelle_mission" || type === "dispatch_sollicitation";
+}
+
+function optionsPushParType(type: string): Pick<admin.messaging.MulticastMessage, "android" | "apns"> {
+  if (estNouvelleCourse(type)) {
+    return {
+      android: {
+        priority: "high",
+        notification: {
+          channelId: CANAL_NOUVELLE_COURSE,
+          sound: SON_NOUVELLE_COURSE_ANDROID,
+          priority: "high" as const,
+          defaultVibrateTimings: true,
+          visibility: "public" as const,
+        },
+      },
+      apns: {
+        headers: { "apns-priority": "10" },
+        payload: {
+          aps: {
+            sound: SON_NOUVELLE_COURSE_IOS,
+            badge: 1,
+            "content-available": 1,
+          },
+        },
+      },
+    };
+  }
+  return {
+    android: { priority: "high" },
+    apns: { payload: { aps: { sound: "default" } } },
+  };
+}
+
 export async function envoyerFcm(
   tokens: string[],
   titre: string,
@@ -146,12 +257,14 @@ export async function envoyerFcm(
   const uniques = [...new Set(tokens.filter(Boolean))];
   if (uniques.length === 0) return;
 
+  const type = data.type ?? "";
+  const pushOptions = optionsPushParType(type);
+
   const message: admin.messaging.MulticastMessage = {
     tokens: uniques,
     notification: { title: titre, body: corps },
     data,
-    android: { priority: "high" },
-    apns: { payload: { aps: { sound: "default" } } },
+    ...pushOptions,
   };
 
   const response = await admin.messaging().sendEachForMulticast(message);
@@ -168,9 +281,12 @@ export async function notifierMissionAssignee(
   data: Record<string, unknown>,
   chauffeurAssigne: string,
 ): Promise<void> {
-  const tokens = await resoudreTokensParEmail(chauffeurAssigne);
+  const uidHint = String(
+    data.chauffeurUid ?? data.chauffeurId ?? data.uidChauffeur ?? "",
+  ).trim();
+  const tokens = await resoudreTokensChauffeur(chauffeurAssigne, uidHint || undefined);
   if (tokens.length === 0) {
-    logger.info("Aucun token FCM pour chauffeur", { missionId, chauffeurAssigne });
+    logger.info("Aucun token FCM pour chauffeur", { missionId, chauffeurAssigne, uidHint });
     return;
   }
 
@@ -181,6 +297,26 @@ export async function notifierMissionAssignee(
     lieu ? `Course assignée : ${lieu}` : "Une course vous a été assignée.",
     { type: "nouvelle_mission", missionId },
   );
+}
+
+export async function notifierSollicitationDispatch(
+  chauffeurUid: string,
+  sollicitation: Record<string, unknown>,
+): Promise<void> {
+  const tokens = await resoudreTokensParUid(chauffeurUid);
+  if (tokens.length === 0) {
+    logger.info("Aucun token FCM pour sollicitation dispatch", { chauffeurUid });
+    return;
+  }
+
+  const message =
+    String(sollicitation.message ?? "").trim() ||
+    "Nouvelle demande de course, es-tu disponible ?";
+
+  await envoyerFcm(tokens, "KELEGANCE — Dispatch", message, {
+    type: "dispatch_sollicitation",
+    chauffeurUid,
+  });
 }
 
 export async function notifierFacturePayee(
@@ -253,7 +389,10 @@ export async function scannerRappelsDepart1h(): Promise<number> {
     if (t < fenetreDebut || t > fenetreFin) continue;
 
     const chauffeur = String(data.chauffeurAssigne ?? "").trim();
-    const tokens = chauffeur ? await resoudreTokensParEmail(chauffeur) : [];
+    const uidHint = String(data.chauffeurUid ?? data.chauffeurId ?? "").trim();
+    const tokens = chauffeur
+      ? await resoudreTokensChauffeur(chauffeur, uidHint || undefined)
+      : [];
 
     const lieu = libelleLieuMission(data);
     const heure = String(data.heure ?? data.heure_depart ?? "");

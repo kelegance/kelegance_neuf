@@ -1,5 +1,7 @@
 import 'dart:convert';
 
+import 'kelegance_chauffeurs_referentiel.dart';
+
 /// Données réservation extraites d'une mission Firestore — injectées dans le document web.
 class KeleganceDocumentDonnees {
   const KeleganceDocumentDonnees({
@@ -22,6 +24,7 @@ class KeleganceDocumentDonnees {
     required this.dateEmission,
     this.chauffeur,
     this.missionId,
+    this.profilChauffeur,
   });
 
   final String type;
@@ -43,6 +46,7 @@ class KeleganceDocumentDonnees {
   final String dateEmission;
   final String? chauffeur;
   final String? missionId;
+  final KeleganceProfilChauffeurBdc? profilChauffeur;
 
   static const double tauxTvaTransport = 0.10;
 
@@ -52,6 +56,7 @@ class KeleganceDocumentDonnees {
     required String token,
     String? numeroDocument,
     String? missionId,
+    KeleganceProfilChauffeurBdc? profilChauffeur,
   }) {
     final prixTtc = (missionData['prix'] as num?)?.toDouble() ?? 0.0;
     final prixHt = double.parse((prixTtc / (1 + tauxTvaTransport)).toStringAsFixed(2));
@@ -92,8 +97,9 @@ class KeleganceDocumentDonnees {
       passagers: (missionData['passagers'] as num?)?.toInt() ?? 1,
       numeroDocument: numero,
       dateEmission: emission,
-      chauffeur: missionData['chauffeurAssigne']?.toString(),
+      chauffeur: profilChauffeur?.nom ?? missionData['chauffeurAssigne']?.toString(),
       missionId: missionId,
+      profilChauffeur: profilChauffeur,
     );
   }
 
@@ -123,6 +129,11 @@ abstract final class KeleganceDocumentsPdfService {
     required String type,
     required KeleganceDocumentDonnees donnees,
   }) {
+    final estBdc = type == 'BON DE COMMANDE RETOUR' || type == 'BON DE COMMANDE VTC';
+    if (estBdc &&
+        (donnees.profilChauffeur == null || !donnees.profilChauffeur!.estComplet)) {
+      throw KeleganceChauffeurDonneesIncompletesException();
+    }
     final corps = switch (type) {
       'BON DE COMMANDE RETOUR' || 'BON DE COMMANDE VTC' => _htmlBonCommande(donnees),
       _ => _htmlFacture(donnees),
@@ -159,6 +170,13 @@ abstract final class KeleganceDocumentsPdfService {
         '{{whatsappLien}}': KeleganceIdentiteDocuments.lienWhatsApp,
         '{{articleLegal}}': _echapper(_articleLegal),
         '{{chauffeur}}': _echapper(d.chauffeur ?? '—'),
+        '{{chauffeurNom}}': _echapper(d.profilChauffeur?.nom ?? d.chauffeur ?? '—'),
+        '{{chauffeurTelephone}}': _echapper(d.profilChauffeur?.telephone ?? '—'),
+        '{{chauffeurMarque}}': _echapper(d.profilChauffeur?.marque ?? '—'),
+        '{{chauffeurModele}}': _echapper(d.profilChauffeur?.modele ?? '—'),
+        '{{chauffeurVehicule}}': _echapper(d.profilChauffeur?.vehiculeComplet ?? '—'),
+        '{{chauffeurCouleur}}': _echapper(d.profilChauffeur?.couleur ?? '—'),
+        '{{chauffeurPlaque}}': _echapper(d.profilChauffeur?.plaque ?? '—'),
       };
 
   static String _remplacerVariables(String modele, KeleganceDocumentDonnees d) {
@@ -389,11 +407,19 @@ abstract final class KeleganceDocumentsPdfService {
     </div>
     <div class="content">
       <p class="legal">{{articleLegal}}</p>
+      <p class="section-title">Chauffeur &amp; véhicule assignés</p>
+      <div class="grid">
+        <div class="field"><label>Chauffeur</label><span>{{chauffeurNom}}</span></div>
+        <div class="field"><label>Téléphone</label><span>{{chauffeurTelephone}}</span></div>
+        <div class="field"><label>Marque</label><span>{{chauffeurMarque}}</span></div>
+        <div class="field"><label>Modèle</label><span>{{chauffeurModele}}</span></div>
+        <div class="field"><label>Couleur</label><span>{{chauffeurCouleur}}</span></div>
+        <div class="field"><label>Plaque</label><span>{{chauffeurPlaque}}</span></div>
+      </div>
       <p class="section-title">Exploitant</p>
       <div class="grid">
         <div class="field"><label>Raison sociale</label><span>{{raisonSociale}}</span></div>
-        <div class="field"><label>Contact</label><span>{{emailAdmin}}</span></div>
-        <div class="field"><label>WhatsApp Pro</label><span><a href="{{whatsappLien}}" style="color:#D4AF37">{{whatsapp}}</a></span></div>
+        <div class="field"><label>Contact administratif</label><span>{{emailAdmin}}</span></div>
       </div>
       <p class="section-title">Client &amp; réservation</p>
       <div class="grid">
@@ -405,7 +431,6 @@ abstract final class KeleganceDocumentsPdfService {
         <div class="field full"><label>Destination</label><span>{{destination}}</span></div>
         <div class="field"><label>Passagers</label><span>{{passagers}}</span></div>
         <div class="field"><label>Prestation</label><span>{{prestation}}</span></div>
-        <div class="field"><label>Chauffeur assigné</label><span>{{chauffeur}}</span></div>
       </div>
       <div class="tarif-box">
         <div class="libelle">Tarif forfaitaire convenu (TTC)</div>
@@ -421,7 +446,7 @@ abstract final class KeleganceDocumentsPdfService {
       <span>Document électronique — token {{token}}</span>
       <div class="contact">
         <a href="mailto:{{emailAdmin}}">{{emailAdmin}}</a>
-        <a href="{{whatsappLien}}">WhatsApp {{whatsapp}}</a>
+        <span>{{chauffeurTelephone}}</span>
       </div>
     </div>''';
     return _remplacerVariables(modele, d);
@@ -505,7 +530,7 @@ abstract final class KeleganceDocumentsPdfService {
 /// Identité légale & contacts documents — source unique facturation électronique.
 abstract final class KeleganceIdentiteDocuments {
   static const String emailAdmin = 'admin@kelegance-prestige.com';
-  static const String whatsappPrestige = '+33 6 65 58 73 60';
+  static const String whatsappPrestige = '+33 6 00 00 00 00';
   static const String exploitant = 'KELEGANCE';
   static const String raisonSociale = 'KELEGANCE';
   static const String adresseSiege = '8 RUE AMPERE, 92000 NANTERRE FRANCE';

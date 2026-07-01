@@ -4,6 +4,9 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 
+import 'kelegance_firestore_live.dart';
+import 'kelegance_latence_tracer.dart';
+
 /// Instantané live d'une écoute Firestore sur `missions`.
 class KeleganceMissionsSnapshot {
   const KeleganceMissionsSnapshot({
@@ -29,7 +32,7 @@ abstract final class KeleganceMissionsService {
   static final StreamController<KeleganceMissionsSnapshot> _flux =
       StreamController<KeleganceMissionsSnapshot>.broadcast();
 
-  static StreamSubscription<QuerySnapshot>? _abonnementFirestore;
+  static StreamSubscription<QuerySnapshot<Map<String, dynamic>>>? _abonnementFirestore;
   static bool _premierChargement = true;
   static KeleganceMissionsSnapshot? _cache;
 
@@ -43,8 +46,15 @@ abstract final class KeleganceMissionsService {
     if (_abonnementFirestore != null) return;
 
     _premierChargement = true;
-    _abonnementFirestore = collection.snapshots().listen(
-      (snap) {
+    final requete = collection.withConverter<Map<String, dynamic>>(
+      fromFirestore: (snap, _) => snap.data() ?? {},
+      toFirestore: (data, _) => data,
+    );
+    _abonnementFirestore = KeleganceFirestoreLive.ecouterRequete(
+      requete: requete,
+      etiquette: 'missions',
+      ignorerCacheSeul: true,
+      onData: (snap) {
         final instantane = KeleganceMissionsSnapshot(
           docs: snap.docs,
           changes: snap.docChanges,
@@ -57,6 +67,7 @@ abstract final class KeleganceMissionsService {
         if (!_flux.isClosed) {
           _flux.add(instantane);
         }
+        unawaited(KeleganceLatenceTracer.traiterSnapshotMissions(instantane));
       },
       onError: (Object e) {
         if (kDebugMode) debugPrint('KeleganceMissionsService: $e');

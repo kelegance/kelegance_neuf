@@ -31,6 +31,13 @@ function remplacerVariables(modele: string, d: DocumentDonnees): string {
     "{{whatsappLien}}": WHATSAPP_LIEN,
     "{{articleLegal}}": echapperHtml(KELEGANCE_IDENTITE.articleLegal),
     "{{chauffeur}}": echapperHtml(d.chauffeur ?? "—"),
+    "{{chauffeurNom}}": echapperHtml(d.chauffeurNom ?? d.chauffeur ?? "—"),
+    "{{chauffeurTelephone}}": echapperHtml(d.chauffeurTelephone ?? "—"),
+    "{{chauffeurMarque}}": echapperHtml(d.chauffeurMarque ?? "—"),
+    "{{chauffeurModele}}": echapperHtml(d.chauffeurModele ?? "—"),
+    "{{chauffeurVehicule}}": echapperHtml(d.chauffeurVehicule ?? "—"),
+    "{{chauffeurCouleur}}": echapperHtml(d.chauffeurCouleur ?? "—"),
+    "{{chauffeurPlaque}}": echapperHtml(d.chauffeurPlaque ?? "—"),
   };
 
   let html = modele;
@@ -258,11 +265,19 @@ const MODELE_BON_COMMANDE = `
     </div>
     <div class="content">
       <p class="legal">{{articleLegal}}</p>
+      <p class="section-title">Chauffeur &amp; véhicule assignés</p>
+      <div class="grid">
+        <div class="field"><label>Chauffeur</label><span>{{chauffeurNom}}</span></div>
+        <div class="field"><label>Téléphone</label><span>{{chauffeurTelephone}}</span></div>
+        <div class="field"><label>Marque</label><span>{{chauffeurMarque}}</span></div>
+        <div class="field"><label>Modèle</label><span>{{chauffeurModele}}</span></div>
+        <div class="field"><label>Couleur</label><span>{{chauffeurCouleur}}</span></div>
+        <div class="field"><label>Plaque</label><span>{{chauffeurPlaque}}</span></div>
+      </div>
       <p class="section-title">Exploitant</p>
       <div class="grid">
         <div class="field"><label>Raison sociale</label><span>{{raisonSociale}}</span></div>
-        <div class="field"><label>Contact</label><span>{{emailAdmin}}</span></div>
-        <div class="field"><label>WhatsApp Pro</label><span><a href="{{whatsappLien}}" style="color:#D4AF37">{{whatsapp}}</a></span></div>
+        <div class="field"><label>Contact administratif</label><span>{{emailAdmin}}</span></div>
       </div>
       <p class="section-title">Client &amp; réservation</p>
       <div class="grid">
@@ -274,7 +289,6 @@ const MODELE_BON_COMMANDE = `
         <div class="field full"><label>Destination</label><span>{{destination}}</span></div>
         <div class="field"><label>Passagers</label><span>{{passagers}}</span></div>
         <div class="field"><label>Prestation</label><span>{{prestation}}</span></div>
-        <div class="field"><label>Chauffeur assigné</label><span>{{chauffeur}}</span></div>
       </div>
       <div class="tarif-box">
         <div class="libelle">Tarif forfaitaire convenu (TTC)</div>
@@ -290,11 +304,23 @@ const MODELE_BON_COMMANDE = `
       <span>Document électronique — token {{token}}</span>
       <div class="contact">
         <a href="mailto:{{emailAdmin}}">{{emailAdmin}}</a>
-        <a href="{{whatsappLien}}">WhatsApp {{whatsapp}}</a>
+        <span>{{chauffeurTelephone}}</span>
       </div>
     </div>`;
 
 export function genererHtmlBonCommande(donnees: DocumentDonnees): string {
+  const estBdc = donnees.type.includes("BON DE COMMANDE");
+  if (
+    estBdc &&
+    (!donnees.chauffeurNom ||
+      !donnees.chauffeurTelephone ||
+      !donnees.chauffeurMarque ||
+      !donnees.chauffeurModele ||
+      !donnees.chauffeurCouleur ||
+      !donnees.chauffeurPlaque)
+  ) {
+    throw new Error("Données chauffeur incomplètes");
+  }
   const corps = remplacerVariables(MODELE_BON_COMMANDE, donnees);
   return enveloppeHtml(donnees.titre.toUpperCase(), corps);
 }

@@ -111,7 +111,8 @@ abstract final class KeleganceRoles {
 
   static bool peutVoirCaGlobal([String? email]) => estBrasDroit(email);
 
-  static bool peutVoirPresenceEquipe([String? email]) => estBrasDroit(email);
+  static bool peutVoirPresenceEquipe([String? email]) =>
+      FirebaseAuth.instance.currentUser != null;
 
   static bool peutGererInvitationsChauffeur([String? email]) => estBrasDroit(email);
 

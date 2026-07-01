@@ -74,3 +74,4 @@ flutter:
     - assets/images/
     - assets/sounds/course_instantanee.mp3
     - assets/sounds/alerte_notification.mp3
+    - assets/data/chauffeurs_data.json

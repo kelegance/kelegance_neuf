@@ -3,6 +3,7 @@ import * as logger from "firebase-functions/logger";
 import { FieldValue } from "firebase-admin/firestore";
 import { KELEGANCE_IDENTITE } from "../constants";
 import { genererHtmlDocument } from "./invoice-html";
+import { exigerProfilChauffeur } from "../services/chauffeurs-referentiel";
 import {
   DocumentDonnees,
   MissionData,
@@ -93,7 +94,14 @@ export async function publierDocument(
 ): Promise<DocumentPublie> {
   const token = genererToken();
   const lienWeb = `${KELEGANCE_IDENTITE.baseUrlWeb}/${token}`;
-  const donnees = documentDepuisMission(missionData, { type, token, missionId });
+  const estBdc = type !== "FACTURE TTC";
+  const profilChauffeur = estBdc ? await exigerProfilChauffeur(db, missionData) : undefined;
+  const donnees = documentDepuisMission(missionData, {
+    type,
+    token,
+    missionId,
+    profilChauffeur,
+  });
   const htmlContenu = genererHtmlDocument(type, donnees);
   const prix = donnees.prixTtc;
   const ventilation = ventilerCommission(prix);
@@ -118,6 +126,9 @@ export async function publierDocument(
     fraisService: ventilation.fraisService,
     numeroDocument: donnees.numeroDocument,
     dateEmission: donnees.dateEmission,
+    chauffeur: donnees.chauffeurNom ?? donnees.chauffeur,
+    chauffeurVehicule: donnees.chauffeurVehicule,
+    chauffeurPlaque: donnees.chauffeurPlaque,
     htmlContenu,
     format: "electronique_web",
     emailAdmin: KELEGANCE_IDENTITE.emailAdmin,

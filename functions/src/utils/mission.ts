@@ -1,4 +1,5 @@
 import { KELEGANCE_IDENTITE } from "../constants";
+import { ProfilChauffeurBdc } from "../services/chauffeurs-referentiel";
 
 export interface MissionData {
   statut?: string;
@@ -15,6 +16,8 @@ export interface MissionData {
   prix?: number;
   passagers?: number;
   chauffeurAssigne?: string;
+  chauffeurUid?: string;
+  chauffeurId?: string;
   factureGeneree?: boolean | string;
   factureToken?: string;
   factureErreur?: string;
@@ -46,6 +49,13 @@ export interface DocumentDonnees {
   dateEmission: string;
   chauffeur?: string;
   missionId?: string;
+  chauffeurNom?: string;
+  chauffeurTelephone?: string;
+  chauffeurMarque?: string;
+  chauffeurModele?: string;
+  chauffeurCouleur?: string;
+  chauffeurPlaque?: string;
+  chauffeurVehicule?: string;
 }
 
 export function normaliserStatut(statut: unknown): string {
@@ -58,6 +68,26 @@ export function normaliserStatut(statut: unknown): string {
 export function estTerminee(statut: unknown): boolean {
   const s = normaliserStatut(statut);
   return s === "TERMINE" || s === "TERMINÉ";
+}
+
+/** Réservation validée — déclenche l'envoi automatique du bon de commande. */
+export function estStatutValidePourBdc(statut: unknown): boolean {
+  const s = normaliserStatut(statut);
+  if (!s) return false;
+  if (s.includes("ANNULE") || s.includes("BROUILLON")) return false;
+  if (s === "EN ATTENTE" || s === "EN_ATTENTE") return false;
+  if (s.includes("TERMINE")) return false;
+  return (
+    s.includes("PLAN") ||
+    s.includes("CONFIRM") ||
+    s.includes("VALID") ||
+    s === "ACCEPTEE" ||
+    s === "REDISPATCHE"
+  );
+}
+
+export function estTransitionVersValide(avant: unknown, apres: unknown): boolean {
+  return !estStatutValidePourBdc(avant) && estStatutValidePourBdc(apres);
 }
 
 export function texte(valeur: unknown, fallback = ""): string {
@@ -85,7 +115,13 @@ export function ventilerCommission(prixTtc: number) {
 
 export function documentDepuisMission(
   missionData: MissionData,
-  options: { type: string; token: string; missionId: string; numeroDocument?: string },
+  options: {
+    type: string;
+    token: string;
+    missionId: string;
+    numeroDocument?: string;
+    profilChauffeur?: ProfilChauffeurBdc;
+  },
 ): DocumentDonnees {
   const prixTtc = Number(missionData.prix ?? 0);
   const prixHt =
@@ -108,6 +144,8 @@ export function documentDepuisMission(
       ? `FAC-${now.getFullYear()}-${options.token.substring(4, 12)}`
       : `BDC-${options.token.substring(4, 12)}`);
 
+  const profil = options.profilChauffeur;
+
   return {
     type: options.type,
     token: options.token,
@@ -126,8 +164,15 @@ export function documentDepuisMission(
     passagers: Number(missionData.passagers ?? 1),
     numeroDocument,
     dateEmission,
-    chauffeur: texte(missionData.chauffeurAssigne, "—"),
+    chauffeur: profil?.nom ?? texte(missionData.chauffeurAssigne, "—"),
     missionId: options.missionId,
+    chauffeurNom: profil?.nom,
+    chauffeurTelephone: profil?.telephone,
+    chauffeurMarque: profil?.marque,
+    chauffeurModele: profil?.modele,
+    chauffeurCouleur: profil?.couleur,
+    chauffeurPlaque: profil?.plaque,
+    chauffeurVehicule: profil ? `${profil.marque} ${profil.modele}`.trim() : undefined,
   };
 }
 

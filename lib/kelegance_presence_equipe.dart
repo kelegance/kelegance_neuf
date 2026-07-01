@@ -6,7 +6,7 @@ import 'kelegance_dispatch_sollicitation.dart';
 import 'kelegance_presence_service.dart';
 import 'kelegance_roles.dart';
 
-/// Tableau de bord — collaborateurs en temps réel (Bras Droit uniquement).
+/// Tableau de bord — collaborateurs en temps réel (tous les chauffeurs).
 class KelegancePresenceEquipe extends StatelessWidget {
   const KelegancePresenceEquipe({super.key, this.compact = false});
 
@@ -19,23 +19,19 @@ class KelegancePresenceEquipe extends StatelessWidget {
   Widget build(BuildContext context) {
     return ValueListenableBuilder<bool>(
       valueListenable: KeleganceRoles.notifierBrasDroit,
-      builder: (context, _, __) {
-        if (!KeleganceRoles.accesOutilsAdmin()) {
-          return const SizedBox.shrink();
-        }
-        return _buildContenu(context);
-      },
+      builder: (context, _, __) => _buildContenu(context),
     );
   }
 
   Widget _buildContenu(BuildContext context) {
     final monUid = FirebaseAuth.instance.currentUser?.uid;
+    final vueAdmin = KeleganceRoles.accesOutilsAdmin();
 
     final contenu = KelegancePresenceStreamBuilder(
-      filtre: (docs) => KelegancePresenceService.collaborateursVisibles(
+      filtre: (docs) => KelegancePresenceService.membresEquipeVisibles(
         docs,
         monUid: monUid,
-        actifsSeulement: false,
+        enLigneSeulement: true,
       ),
       builder: (context, snapshot, live) {
         if (snapshot == null) {
@@ -60,8 +56,11 @@ class KelegancePresenceEquipe extends StatelessWidget {
         }).length;
 
         if (docs.isEmpty) {
+          KelegancePresenceService.logEquipe(
+            'liste vide après filtre — vueAdmin=$vueAdmin monUid=$monUid',
+          );
           return Text(
-            'Aucun collaborateur référencé.',
+            'Aucun autre membre en ligne pour le moment.',
             style: TextStyle(
               color: Colors.white.withOpacity(0.42),
               fontSize: compact ? 10 : 11,
@@ -76,6 +75,7 @@ class KelegancePresenceEquipe extends StatelessWidget {
             docId: doc.id,
             data: data,
             compact: compact,
+            peutSolliciter: vueAdmin,
           );
         }).toList();
 
@@ -166,11 +166,13 @@ class _LigneCollaborateur extends StatelessWidget {
     required this.docId,
     required this.data,
     this.compact = false,
+    this.peutSolliciter = false,
   });
 
   final String docId;
   final Map<String, dynamic> data;
   final bool compact;
+  final bool peutSolliciter;
 
   static const Color _or = Color(0xFFD4AF37);
   static const Color _orangeSollicitation = Color(0xFFE65100);
@@ -184,7 +186,7 @@ class _LigneCollaborateur extends StatelessWidget {
     final sollicitation = KeleganceDispatchSollicitation.estActive(data);
     final enLigne = data['enLigne'] == true;
     final enCourse = data['enCourse'] == true;
-    final peutSolliciter = enLigne && !enCourse;
+    final peutEnvoyerSollicitation = peutSolliciter && enLigne && !enCourse;
 
     return Padding(
       padding: EdgeInsets.only(bottom: compact ? 6 : 8),
@@ -220,7 +222,7 @@ class _LigneCollaborateur extends StatelessWidget {
               letterSpacing: 0.3,
             ),
           ),
-          if (peutSolliciter && !compact) ...[
+          if (peutEnvoyerSollicitation && !compact) ...[
             const SizedBox(width: 8),
             Material(
               color: sollicitation ? _orangeSollicitation.withOpacity(0.22) : Colors.white.withOpacity(0.06),

@@ -2,7 +2,7 @@
   "version": "1.1.1",
   "buildNumber": 17,
   "apkUrl": "https://kelegance.web.app/releases/kelegance-latest.apk",
-  "releaseNotes": "v1.1.1 — routage chauffeur, CA personnel, layout accueil, déploiement complet",
+  "releaseNotes": "BDC dynamique par chauffeur, temps réel, alertes sonores, latence terrain.",
   "mandatory": false,
-  "publishedAt": "2026-06-30T20:03:01.958Z"
+  "publishedAt": "2026-07-01T20:50:00.000Z"
 }

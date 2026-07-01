@@ -11,15 +11,20 @@ import 'kelegance_calendrier_multi_dates.dart';
 import 'kelegance_contenus.dart';
 import 'kelegance_deep_link.dart';
 import 'kelegance_maps_launch.dart';
+import 'kelegance_bon_commande_generator.dart';
+import 'kelegance_chauffeurs_referentiel.dart';
 import 'kelegance_bon_commande_service.dart';
 import 'kelegance_bon_commande_ui.dart';
 import 'kelegance_live_sync.dart';
+import 'kelegance_notification_service.dart';
 import 'kelegance_missions_service.dart';
 import 'mission_details_screen.dart';
 import 'kelegance_factures_service.dart';
 import 'kelegance_documents_pdf_service.dart';
 import 'kelegance_ota_update.dart';
 import 'kelegance_platform.dart';
+import 'kelegance_console_entete_chauffeur.dart';
+import 'kelegance_profil_chauffeur_stream.dart';
 import 'kelegance_dispatch_sollicitation.dart';
 import 'kelegance_presence_equipe.dart';
 import 'kelegance_presence_service.dart';
@@ -35,7 +40,10 @@ import 'kelegance_version_check.dart';
 import 'kelegance_web_urls.dart';
 import 'qr_generator_page.dart';
 import 'reveil_missions_service.dart';
+import 'kelegance_audio_alertes.dart';
+import 'kelegance_firestore_live.dart';
 import 'kelegance_fcm_background.dart';
+import 'kelegance_latence_tracer.dart';
 import 'stripe_paiement_service.dart';
 import 'utils/pricing.dart';
 import 'package:flutter/foundation.dart';
@@ -53,7 +61,6 @@ import 'package:google_maps_flutter/google_maps_flutter.dart';
 import 'package:google_maps_flutter_android/google_maps_flutter_android.dart';
 import 'package:google_maps_flutter_platform_interface/google_maps_flutter_platform_interface.dart';
 import 'package:system_alert_window/system_alert_window.dart';
-import 'package:audioplayers/audioplayers.dart';
 import 'package:share_plus/share_plus.dart';
 
 void main() async {
@@ -65,6 +72,7 @@ void main() async {
     await Firebase.initializeApp(
       options: DefaultFirebaseOptions.web,
     );
+    await KeleganceFirestoreLive.configurer();
   } catch (e, st) {
     if (kDebugMode) {
       debugPrint('Kelegance init Firebase: $e\n$st');
@@ -484,13 +492,22 @@ abstract final class KeleganceDocumentsClient {
       _ => 'Facture TTC',
     };
 
-    final donnees = KeleganceDocumentDonnees.depuisMission(
-      missionData,
-      type: type,
-      token: token,
-      numeroDocument: numeroDocument,
-      missionId: missionId,
-    );
+    final estBdc = type == 'BON DE COMMANDE RETOUR' || type == 'BON DE COMMANDE VTC';
+    final donnees = estBdc
+        ? await KeleganceBonCommandeGenerator.preparerDonnees(
+            missionData: missionData,
+            type: type,
+            token: token,
+            numeroDocument: numeroDocument,
+            missionId: missionId,
+          )
+        : KeleganceDocumentDonnees.depuisMission(
+            missionData,
+            type: type,
+            token: token,
+            numeroDocument: numeroDocument,
+            missionId: missionId,
+          );
     final htmlContenu = KeleganceDocumentsPdfService.genererHtml(type: type, donnees: donnees);
 
     await FirebaseFirestore.instance.collection(collection).doc(token).set({
@@ -847,7 +864,22 @@ abstract final class KeleganceGestionReservations {
   }
 
   static Future<void> valider(String docId) async {
-    await FirebaseFirestore.instance.collection('missions').doc(docId).update({'statut': 'PLANIFIÉ'});
+    final ref = FirebaseFirestore.instance.collection('missions').doc(docId);
+    final snap = await ref.get();
+    final data = snap.data();
+    if (data == null) return;
+
+    await KeleganceBonCommandeGenerator.verifierChauffeurPourMission(data);
+
+    await KeleganceLatenceTracer.marquerEmissionAdmin(
+      missionId: docId,
+      action: 'valider',
+      chauffeurCible: data['chauffeurAssigne']?.toString(),
+    );
+    await ref.update({
+      'statut': 'PLANIFIÉ',
+      'valideLe': FieldValue.serverTimestamp(),
+    });
   }
 
   static Future<void> annuler(String docId) async {
@@ -1035,10 +1067,52 @@ abstract final class KeleganceGestionReservations {
           TextButton(
             onPressed: () async {
               final chauffeur = chauffeurCtrl.text.trim();
+              if (chauffeur.isEmpty) {
+                if (context.mounted) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(
+                      backgroundColor: Colors.orange,
+                      content: Text('Indiquez le chauffeur à assigner avant le dispatch.'),
+                    ),
+                  );
+                }
+                return;
+              }
+
+              final missionCourante = {...data, 'chauffeurAssigne': chauffeur};
+              KeleganceProfilChauffeurBdc profil;
+              try {
+                profil = await KeleganceBonCommandeGenerator.verifierChauffeurPourMission(missionCourante);
+              } on KeleganceChauffeurDonneesIncompletesException catch (e) {
+                if (context.mounted) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(backgroundColor: Colors.redAccent, content: Text(e.toString())),
+                  );
+                }
+                return;
+              }
+
+              String? chauffeurUid = profil.uid;
+              if (chauffeurUid == null && profil.email != null) {
+                final q = await FirebaseFirestore.instance
+                    .collection('chauffeurs')
+                    .where('email', isEqualTo: profil.email)
+                    .limit(1)
+                    .get();
+                if (q.docs.isNotEmpty) chauffeurUid = q.docs.first.id;
+              }
+
+              await KeleganceLatenceTracer.marquerEmissionAdmin(
+                missionId: docId,
+                action: 'dispatch',
+                chauffeurCible: chauffeur,
+              );
               await FirebaseFirestore.instance.collection('missions').doc(docId).update({
                 'depart': departCtrl.text.trim(),
                 'destination': destCtrl.text.trim(),
-                if (chauffeur.isNotEmpty) 'chauffeurAssigne': chauffeur,
+                'chauffeurAssigne': chauffeur,
+                if (chauffeurUid != null) 'chauffeurUid': chauffeurUid,
+                'chauffeurVehicule': profil.toMap(),
                 'statut': 'REDISPATCHÉ',
                 'dispatcheLe': FieldValue.serverTimestamp(),
               });
@@ -1088,7 +1162,19 @@ abstract final class KeleganceGestionReservations {
           label: Text('Dispatch', style: TextStyle(color: couleur(!verrou, Colors.blue), fontSize: fontSize, fontWeight: FontWeight.bold)),
         ),
         TextButton.icon(
-          onPressed: verrou ? null : () async => await valider(docId),
+          onPressed: verrou
+              ? null
+              : () async {
+                  try {
+                    await valider(docId);
+                  } on KeleganceChauffeurDonneesIncompletesException catch (e) {
+                    if (context.mounted) {
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        SnackBar(backgroundColor: Colors.redAccent, content: Text(e.toString())),
+                      );
+                    }
+                  }
+                },
           icon: Icon(Icons.check_circle, color: couleur(!verrou, Colors.green), size: 16),
           label: Text('Valider', style: TextStyle(color: couleur(!verrou, Colors.green), fontSize: fontSize, fontWeight: FontWeight.bold)),
         ),
@@ -1099,107 +1185,6 @@ abstract final class KeleganceGestionReservations {
         ),
       ],
     );
-  }
-}
-
-/// Alertes audio chauffeur — v4.8.0 (boucle stricte + logs diagnostic terminal).
-abstract final class KeleganceAudioAlertes {
-  static final AudioPlayer _instantPlayer = AudioPlayer(playerId: 'kelegance_instant');
-  static final AudioPlayer _notificationPlayer = AudioPlayer(playerId: 'kelegance_notif');
-  static const String _sonCourse = 'sounds/course_instantanee.mp3';
-  static const String _sonNotification = 'sounds/alerte_notification.mp3';
-  static const double _vitesseCourseInstantanee = 1.2;
-  static double _volumeAlerte = 1.0;
-  static bool _initialise = false;
-  static bool _boucleInstantActive = false;
-  static StreamSubscription<void>? _finInstantSub;
-
-  static AudioPlayer get audioPlayer => _instantPlayer;
-
-  static void definirVolumeAlerte(double volume) {
-    _volumeAlerte = volume.clamp(0.0, 1.0);
-    unawaited(_instantPlayer.setVolume(_volumeAlerte));
-  }
-
-  static Future<void> _configurerLecteurInstant() async {
-    await audioPlayer.setPlaybackRate(_vitesseCourseInstantanee);
-    await audioPlayer.setVolume(_volumeAlerte);
-  }
-
-  static Future<void> _jouerSecurise(AudioPlayer player, AssetSource source, {required String label}) async {
-    try {
-      await player.play(source);
-      print('👉 AUDIO OK [$label] : ${source.path}');
-    } catch (e) {
-      print('👉 ERREUR AUDIO CRITIQUE : $e');
-    }
-  }
-
-  static Future<void> initialiser() async {
-    if (_initialise) return;
-    try {
-      await _finInstantSub?.cancel();
-      await _configurerLecteurInstant();
-      _finInstantSub = audioPlayer.onPlayerComplete.listen((_) async {
-        if (!_boucleInstantActive) return;
-        try {
-          await _configurerLecteurInstant();
-          await audioPlayer.play(AssetSource(_sonCourse));
-        } catch (e) {
-          print('👉 ERREUR AUDIO CRITIQUE : $e');
-        }
-      });
-      _initialise = true;
-      print('👉 AUDIO OK : KeleganceAudioAlertes initialisé');
-    } catch (e) {
-      print('👉 ERREUR AUDIO CRITIQUE : $e');
-    }
-  }
-
-  static Future<void> playInstantRequestSound() async {
-    try {
-      await initialiser();
-      _boucleInstantActive = true;
-      await audioPlayer.stop();
-      await audioPlayer.setReleaseMode(ReleaseMode.loop);
-      await _configurerLecteurInstant();
-      await _jouerSecurise(audioPlayer, AssetSource(_sonCourse), label: 'course instantanée');
-    } catch (e) {
-      print('👉 ERREUR AUDIO CRITIQUE : $e');
-    }
-  }
-
-  static Future<void> stopInstantRequestSound() async {
-    try {
-      _boucleInstantActive = false;
-      await audioPlayer.stop();
-      await audioPlayer.setReleaseMode(ReleaseMode.release);
-      print('👉 AUDIO OK : son course arrêté');
-    } catch (e) {
-      print('👉 ERREUR AUDIO CRITIQUE : $e');
-    }
-  }
-
-  static Future<void> playNotificationSound() async {
-    try {
-      await initialiser();
-      await _notificationPlayer.stop();
-      await _notificationPlayer.setReleaseMode(ReleaseMode.release);
-      await _jouerSecurise(_notificationPlayer, AssetSource(_sonNotification), label: 'notification');
-    } catch (e) {
-      print('👉 ERREUR AUDIO CRITIQUE : $e');
-    }
-  }
-
-  static Future<void> liberer() async {
-    try {
-      _boucleInstantActive = false;
-      await audioPlayer.stop();
-      await _notificationPlayer.stop();
-      print('👉 AUDIO OK : sons arrêtés (lecteur global conservé)');
-    } catch (e) {
-      print('👉 ERREUR AUDIO CRITIQUE : $e');
-    }
   }
 }
 
@@ -5204,6 +5189,8 @@ abstract final class KeleganceHistoriqueDemo {
 class _PageConsoleState extends State<PageConsole> with WidgetsBindingObserver {
   _EcranChauffeur _ecran = _EcranChauffeur.accueil;
   bool _isOnline = false;
+  bool _presenceHydratee = false;
+  bool _presenceModifieeParUtilisateur = false;
   bool _showCA = true;
   double _caJournalier = 0.0;
   double _volumeAlerte = 1.0;
@@ -5291,11 +5278,13 @@ class _PageConsoleState extends State<PageConsole> with WidgetsBindingObserver {
       widget.forceVueChauffeurRestreinte || keleganceRouteChauffeurDriver();
   bool get _accesComplet => _accesBrasDroit && !_vueChauffeurRestreinte;
 
-  Future<void> _synchroniserPresenceFirestore() async {
+  Future<void> _synchroniserPresenceFirestore({String source = 'app'}) async {
     await KelegancePresenceService.publier(
       enLigne: _isOnline,
       enCourse: _chauffeurOccupe,
-      nom: FirebaseAuth.instance.currentUser?.displayName,
+      nom: _nomProfilChauffeur != '—' ? _nomProfilChauffeur : FirebaseAuth.instance.currentUser?.displayName,
+      source: source,
+      forcer: source == 'toggle',
     );
   }
 
@@ -5327,48 +5316,63 @@ class _PageConsoleState extends State<PageConsole> with WidgetsBindingObserver {
     unawaited(_chargerNomProfilChauffeur());
     unawaited(KeleganceRoles.initialiserPourUtilisateurCourant());
     _annulerDroitsAcces = KeleganceRoles.ecouterMisesAJour(() {
-      if (mounted) setState(() {});
+      if (mounted) {
+        setState(() {});
+        unawaited(_demarrerServicesTerrain());
+      }
     });
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
-      _abonnementSollicitationDispatch = KeleganceDispatchSollicitation.demarrerEcoute(context);
+      unawaited(_demarrerServicesTerrain());
     });
   }
 
+  Future<void> _demarrerServicesTerrain() async {
+    await KeleganceRoles.initialiserPourUtilisateurCourant();
+    if (!mounted) return;
+
+    await _abonnementSollicitationDispatch?.cancel();
+    _abonnementSollicitationDispatch = KeleganceDispatchSollicitation.demarrerEcoute(context);
+
+    final user = FirebaseAuth.instance.currentUser;
+    if (user != null) {
+      if (!KelegancePresenceService.actif) {
+        await KelegancePresenceService.demarrerEcoutePourUtilisateur(user);
+      }
+      if (!kIsWeb) {
+        await KeleganceNotificationService.demarrerPourUtilisateur(user);
+      }
+    }
+  }
+
+  Future<void> _basculerStatutEnLigne() async {
+    _presenceModifieeParUtilisateur = true;
+    setState(() => _isOnline = !_isOnline);
+    await _synchroniserPresenceFirestore(source: 'toggle');
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(_isOnline ? 'Vous êtes maintenant EN LIGNE' : 'Vous êtes maintenant HORS LIGNE'),
+        backgroundColor: _isOnline ? Colors.green : Colors.red,
+        duration: const Duration(seconds: 2),
+      ),
+    );
+  }
+
   Future<void> _chargerPresenceInitiale() async {
+    if (_presenceModifieeParUtilisateur || _presenceHydratee) return;
     final enLigne = await KelegancePresenceService.chargerEnLigne();
-    if (!mounted || enLigne == null) return;
+    if (!mounted || _presenceModifieeParUtilisateur) return;
+    _presenceHydratee = true;
+    if (enLigne == null) return;
     setState(() => _isOnline = enLigne);
-    await _synchroniserPresenceFirestore();
+    // Ne pas réécrire Firestore — évite d'écraser un « en ligne » posé entre-temps.
   }
 
   Future<void> _chargerNomProfilChauffeur() async {
-    final user = FirebaseAuth.instance.currentUser;
-    if (user == null) return;
-    try {
-      final results = await Future.wait([
-        FirebaseFirestore.instance.collection('chauffeurs').doc(user.uid).get(),
-        FirebaseFirestore.instance.collection('users').doc(user.uid).get(),
-      ]);
-      final data = <String, dynamic>{
-        ...?results[1].data(),
-        ...?results[0].data(),
-      };
-      var nom = KeleganceBonCommandeService.extraireNomAffichage(data);
-      if (nom == 'Client' || nom.isEmpty) {
-        nom = user.displayName?.trim() ?? '';
-      }
-      if (nom.isEmpty) {
-        final email = user.email?.trim();
-        if (email != null && email.contains('@')) {
-          nom = email.split('@').first;
-        }
-      }
-      if (!mounted) return;
-      setState(() => _nomProfilChauffeur = nom.isNotEmpty ? nom : '—');
-    } catch (e) {
-      if (kDebugMode) debugPrint('Kelegance nom profil chauffeur: $e');
-    }
+    final profil = await KeleganceProfilChauffeurStream.charger();
+    if (!mounted) return;
+    setState(() => _nomProfilChauffeur = profil.nomDisponible ? profil.nom! : '—');
   }
 
   Future<void> _chargerPreferencesConsole() async {
@@ -5561,7 +5565,9 @@ class _PageConsoleState extends State<PageConsole> with WidgetsBindingObserver {
       final data = raw;
 
       final statut = (data['statut']?.toString() ?? '').toUpperCase().trim();
-      if (statut != 'EN ATTENTE') continue;
+      final estNouvelleCourse =
+          statut == 'EN ATTENTE' || statut == 'REDISPATCHÉ' || statut == 'REDISPATCHE';
+      if (!estNouvelleCourse) continue;
       if (!_accesBrasDroit) {
         if (!KeleganceRoles.missionAssigneeAuCollaborateur(data)) continue;
       }
@@ -5569,6 +5575,7 @@ class _PageConsoleState extends State<PageConsole> with WidgetsBindingObserver {
       if (_modaleConsoleBloquante || !_peutAfficherAlerteCourse()) return;
 
       _missionsDejaAlertees.add(change.doc.id);
+      unawaited(KeleganceAudioAlertes.playNotificationSound());
       unawaited(_afficherPopupAlerteCourse(docId: change.doc.id, data: data));
       return;
     }
@@ -6784,6 +6791,11 @@ class _PageConsoleState extends State<PageConsole> with WidgetsBindingObserver {
                     ),
                     const SizedBox(height: 4),
                     Text(
+                      _nomProfilChauffeur != '—' ? _nomProfilChauffeur : 'Console Chauffeur',
+                      style: TextStyle(color: Colors.white.withOpacity(0.75), fontSize: 13, fontWeight: FontWeight.w400),
+                    ),
+                    const SizedBox(height: 2),
+                    Text(
                       'Console Chauffeur',
                       style: TextStyle(color: Colors.white.withOpacity(0.45), fontSize: 11, fontWeight: FontWeight.w300),
                     ),
@@ -6794,8 +6806,8 @@ class _PageConsoleState extends State<PageConsole> with WidgetsBindingObserver {
                 child: ListView(
                   padding: const EdgeInsets.symmetric(vertical: 6),
                   children: [
+                    const KelegancePresenceEquipe(compact: true),
                     if (_accesComplet) ...[
-                      const KelegancePresenceEquipe(compact: true),
                       Divider(height: 24, indent: 18, endIndent: 18, color: _orKelegance.withOpacity(0.2)),
                       _drawerLienDirect(
                         icone: Icons.group_add_outlined,
@@ -6805,7 +6817,8 @@ class _PageConsoleState extends State<PageConsole> with WidgetsBindingObserver {
                           MaterialPageRoute(builder: (_) => const KelegancePageInvitationEquipe()),
                         ),
                       ),
-                    ],
+                    ] else
+                      Divider(height: 24, indent: 18, endIndent: 18, color: _orKelegance.withOpacity(0.2)),
                     _drawerLienDirect(
                       icone: Icons.assignment_outlined,
                       titre: 'Suivi & Historique',
@@ -8974,15 +8987,20 @@ class _PageConsoleState extends State<PageConsole> with WidgetsBindingObserver {
             crossAxisAlignment: CrossAxisAlignment.stretch,
             mainAxisSize: MainAxisSize.min,
             children: [
-              if (_accesComplet)
-                ConstrainedBox(
-                  constraints: const BoxConstraints(maxHeight: 168),
-                  child: SingleChildScrollView(
-                    physics: const ClampingScrollPhysics(),
-                    child: const KelegancePresenceEquipe(),
-                  ),
+              KeleganceConsoleEnteteChauffeur(
+                enLigne: _isOnline,
+                reserveAppBar: true,
+                onBasculerEnLigne: () => unawaited(_basculerStatutEnLigne()),
+                onOuvrirNotifications: _ouvrirPreferencesNotifications,
+              ),
+              ConstrainedBox(
+                constraints: const BoxConstraints(maxHeight: 168),
+                child: SingleChildScrollView(
+                  physics: const ClampingScrollPhysics(),
+                  child: const KelegancePresenceEquipe(),
                 ),
-              if (_accesComplet) const SizedBox(height: 6),
+              ),
+              const SizedBox(height: 6),
               _buildBandeauCaCentre(),
             ],
           ),
@@ -9013,18 +9031,7 @@ class _PageConsoleState extends State<PageConsole> with WidgetsBindingObserver {
       borderRadius: BorderRadius.circular(20),
       clipBehavior: Clip.antiAlias,
       child: InkWell(
-        onTap: () async {
-          setState(() => _isOnline = !_isOnline);
-          await _synchroniserPresenceFirestore();
-          if (!mounted) return;
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Text(_isOnline ? 'Vous êtes maintenant EN LIGNE' : 'Vous êtes maintenant HORS LIGNE'),
-              backgroundColor: _isOnline ? Colors.green : Colors.red,
-              duration: const Duration(seconds: 2),
-            ),
-          );
-        },
+        onTap: () => unawaited(_basculerStatutEnLigne()),
         child: Padding(
           padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
           child: Row(
@@ -9146,6 +9153,13 @@ class _PageConsoleState extends State<PageConsole> with WidgetsBindingObserver {
               ),
         centerTitle: true,
         actions: [
+          IconButton(
+            padding: EdgeInsets.zero,
+            constraints: const BoxConstraints(minWidth: 34, minHeight: 34),
+            tooltip: 'Notifications',
+            icon: Icon(Icons.notifications_outlined, color: _orKelegance.withOpacity(0.95), size: 22),
+            onPressed: _ouvrirPreferencesNotifications,
+          ),
           if (_accesComplet)
             TextButton.icon(
               onPressed: () => KeleganceBonCommandeForm.afficher(context),

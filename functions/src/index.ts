@@ -1,23 +1,26 @@
 import * as admin from "firebase-admin";
 import * as functions from "firebase-functions/v1";
 import * as logger from "firebase-functions/logger";
-import { envoyerBonCommandeParEmail, envoyerFactureParEmail, envoyerAlerteReservationHub } from "./email/mailer";
+import { envoyerFactureParEmail, envoyerAlerteReservationHub } from "./email/mailer";
 import {
   chargerDocumentExistant,
   documentExisteDeja,
   publierDocument,
   resoudreEmailClient,
 } from "./documents/invoice-service";
+import { traiterBonCommandeMission } from "./services/bdc-auto";
 import {
   estTerminee,
+  estStatutValidePourBdc,
+  estTransitionVersValide,
   MissionData,
-  typeBonCommandeMission,
 } from "./utils/mission";
 import {
   estStatutPaye,
   notifierFacturePayee,
   notifierMissionAssignee,
   notifierNouvelleReservationHub,
+  notifierSollicitationDispatch,
   scannerRappelsDepart1h,
 } from "./notifications/push";
 
@@ -73,84 +76,42 @@ export const onMissionCreee = functions
       logger.info("BDC déjà généré", { missionId });
       return;
     }
-    if (mission.bdcGeneree === "processing" && !mission.bdcErreur) {
-      logger.info("BDC déjà en cours", { missionId });
+
+    if (!estStatutValidePourBdc(mission.statut)) {
+      logger.info("BDC différé — réservation non validée", {
+        missionId,
+        statut: mission.statut,
+      });
       return;
     }
 
-    const typeBdc = typeBonCommandeMission(mission);
+    await traiterBonCommandeMission(missionId, mission);
+  });
 
-    try {
-      const peutTraiter = await db.runTransaction(async (tx) => {
-        const fresh = await tx.get(missionRef);
-        const data = fresh.data() as MissionData | undefined;
-        if (!data || data.bdcGeneree === true) return false;
-        if (data.bdcGeneree === "processing" && !data.bdcErreur) return false;
-        tx.update(missionRef, {
-          bdcGeneree: "processing",
-          bdcErreur: admin.firestore.FieldValue.delete(),
-          bdcAutoDemarreAt: admin.firestore.FieldValue.serverTimestamp(),
-        });
-        return true;
-      });
+/**
+ * Dès qu'une réservation est validée (statut → PLANIFIÉ / CONFIRMÉ / etc.) :
+ * génère et envoie le bon de commande au client.
+ */
+export const onMissionValidee = functions
+  .region("europe-west1")
+  .runWith(CF_OPTS)
+  .firestore.document("missions/{missionId}")
+  .onUpdate(async (change, context) => {
+    const missionId = context.params.missionId;
+    const avant = change.before.data() as MissionData | undefined;
+    const apres = change.after.data() as MissionData | undefined;
 
-      if (!peutTraiter) return;
+    if (!avant || !apres) return;
+    if (apres.source === "hub_qr") return;
+    if (!estTransitionVersValide(avant.statut, apres.statut)) return;
 
-      const emailClient = await resoudreEmailClient(db, mission);
-      const dejaPublie = await documentExisteDeja(db, missionId, typeBdc);
+    logger.info("Réservation validée — déclenchement BDC", {
+      missionId,
+      statutAvant: avant.statut,
+      statutApres: apres.statut,
+    });
 
-      const bonCommande = dejaPublie
-        ? await chargerDocumentExistant(db, missionId, typeBdc)
-        : await publierDocument(db, missionId, mission, typeBdc, emailClient);
-
-      if (!bonCommande) {
-        throw new Error("Bon de commande introuvable après publication");
-      }
-
-      const envoi = await envoyerBonCommandeParEmail(db, bonCommande);
-
-      await missionRef.update({
-        bdcGeneree: true,
-        bdcToken: bonCommande.token,
-        bdcLienWeb: bonCommande.lienWeb,
-        bdcNumero: bonCommande.numeroDocument,
-        bdcType: typeBdc,
-        bdcEmailEnvoye: envoi.envoye,
-        bdcEmailDestinataire: envoi.destinataire || null,
-        bdcEmailMethode: envoi.methode,
-        bdcEmailErreur: envoi.erreur ?? null,
-        bdcEmailEnvoyeAt: envoi.envoye
-          ? admin.firestore.FieldValue.serverTimestamp()
-          : null,
-        notificationClient: envoi.envoye
-          ? "Votre bon de commande a été envoyé par e-mail."
-          : "Votre bon de commande est disponible dans l'application.",
-        notificationClientAt: admin.firestore.FieldValue.serverTimestamp(),
-      });
-
-      logger.info("BDC automatique terminé", {
-        missionId,
-        bdcToken: bonCommande.token,
-        emailEnvoye: envoi.envoye,
-      });
-    } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
-      logger.error("Échec génération BDC automatique", { missionId, message, stack: err });
-      try {
-        await missionRef.update({
-          bdcGeneree: false,
-          bdcErreur: message,
-          bdcErreurAt: admin.firestore.FieldValue.serverTimestamp(),
-        });
-      } catch (updateErr) {
-        const updateMessage =
-          updateErr instanceof Error ? updateErr.message : String(updateErr);
-        logger.error("Impossible de marquer l'échec BDC sur la mission", {
-          missionId,
-          updateMessage,
-        });
-      }
-    }
+    await traiterBonCommandeMission(missionId, apres);
   });
 
 /**
@@ -304,6 +265,37 @@ export const onFacturePayeePush = functions
     if (!estStatutPaye(String(apres.statut ?? ""))) return;
 
     await notifierFacturePayee(context.params.factureId, apres);
+  });
+
+/**
+ * Push FCM — sollicitation dispatch Bras Droit → chauffeur.
+ */
+export const onSollicitationDispatchPush = functions
+  .region("europe-west1")
+  .firestore.document("presence/{chauffeurId}")
+  .onUpdate(async (change, context) => {
+    const avant = change.before.data() as Record<string, unknown> | undefined;
+    const apres = change.after.data() as Record<string, unknown> | undefined;
+    if (!avant || !apres) return;
+
+    const solAvant = avant.sollicitationDispatch as Record<string, unknown> | undefined;
+    const solApres = apres.sollicitationDispatch as Record<string, unknown> | undefined;
+    if (!solApres || solApres.active !== true) return;
+
+    const tsAvant =
+      solAvant?.envoyeLe && typeof (solAvant.envoyeLe as { toMillis?: () => number }).toMillis === "function"
+        ? (solAvant.envoyeLe as { toMillis: () => number }).toMillis()
+        : null;
+    const tsApres =
+      solApres.envoyeLe && typeof (solApres.envoyeLe as { toMillis?: () => number }).toMillis === "function"
+        ? (solApres.envoyeLe as { toMillis: () => number }).toMillis()
+        : null;
+
+    if (solAvant?.active === true && tsAvant != null && tsApres != null && tsAvant === tsApres) {
+      return;
+    }
+
+    await notifierSollicitationDispatch(context.params.chauffeurId, solApres);
   });
 
 /**

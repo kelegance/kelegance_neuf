@@ -11,6 +11,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:timezone/data/latest_all.dart' as tz_data;
 import 'package:timezone/timezone.dart' as tz;
 
+import 'kelegance_audio_alertes.dart';
 import 'kelegance_factures_service.dart';
 import 'kelegance_missions_service.dart';
 import 'kelegance_notification_prefs.dart';
@@ -22,6 +23,7 @@ abstract final class KeleganceNotificationService {
   static const String _prefsRappels = 'kelegance_rappels_depart_1h_v1';
   static const String _channelProactif = 'kelegance_proactif';
   static const String _channelRappel = 'kelegance_rappel_depart';
+  static const String _channelNouvelleCourse = KeleganceAudioAlertes.canalAndroidNouvelleCourse;
 
   static final FlutterLocalNotificationsPlugin _local = FlutterLocalNotificationsPlugin();
   static final Map<String, String> _dernierChauffeurAssigne = {};
@@ -69,6 +71,16 @@ abstract final class KeleganceNotificationService {
         'Rappels de départ',
         description: 'Rappel 1 h avant chaque transfert planifié',
         importance: Importance.high,
+      ),
+    );
+    await androidImpl?.createNotificationChannel(
+      AndroidNotificationChannel(
+        _channelNouvelleCourse,
+        'Nouvelles courses',
+        description: 'Alerte sonore dédiée aux nouvelles courses assignées',
+        importance: Importance.max,
+        playSound: true,
+        sound: const RawResourceAndroidNotificationSound(KeleganceAudioAlertes.rawAndroidNouvelleCourse),
       ),
     );
     await androidImpl?.requestNotificationsPermission();
@@ -184,18 +196,32 @@ abstract final class KeleganceNotificationService {
   }
 
   static void _traiterMessageFcmPremierPlan(RemoteMessage message) {
+    final type = message.data['type']?.toString() ?? '';
     final notif = message.notification;
     if (notif == null) return;
+
+    final canal = _canalPourType(type);
+    if (_estNouvelleCourse(type)) {
+      unawaited(KeleganceAudioAlertes.playNotificationSound());
+    }
+
     unawaited(
       _afficherLocale(
         titre: notif.title ?? 'Kelegance',
         corps: notif.body ?? '',
-        canal: _channelProactif,
+        canal: canal,
         id: message.hashCode & 0x7FFFFFFF,
-        payload: message.data['type'],
+        payload: type,
+        nouvelleCourse: _estNouvelleCourse(type),
       ),
     );
   }
+
+  static bool _estNouvelleCourse(String type) =>
+      type == 'nouvelle_mission' || type == 'dispatch_sollicitation';
+
+  static String _canalPourType(String type) =>
+      _estNouvelleCourse(type) ? _channelNouvelleCourse : _channelProactif;
 
   static Future<void> _traiterMissions(KeleganceMissionsSnapshot snap) async {
     final prefs = await KeleganceNotificationPrefs.charger();
@@ -225,12 +251,14 @@ abstract final class KeleganceNotificationService {
       if (!_estNouvelleAssignation(change.type, assigne, avant, data)) continue;
 
       final lieu = _libelleLieuMission(data);
+      unawaited(KeleganceAudioAlertes.playNotificationSound());
       await _afficherLocale(
         titre: 'Nouvelle mission',
         corps: lieu.isEmpty ? 'Une course vous a été assignée.' : 'Course assignée : $lieu',
-        canal: _channelProactif,
+        canal: _channelNouvelleCourse,
         id: change.doc.id.hashCode & 0x7FFFFFFF,
         payload: 'mission:${change.doc.id}',
+        nouvelleCourse: true,
       );
     }
 
@@ -421,6 +449,7 @@ abstract final class KeleganceNotificationService {
     required String canal,
     required int id,
     String? payload,
+    bool nouvelleCourse = false,
   }) async {
     if (kIsWeb) return;
     await initialiser();
@@ -432,11 +461,19 @@ abstract final class KeleganceNotificationService {
       notificationDetails: NotificationDetails(
         android: AndroidNotificationDetails(
           canal,
-          canal == _channelRappel ? 'Rappels de départ' : 'Alertes Kelegance',
-          importance: Importance.high,
+          nouvelleCourse ? 'Nouvelles courses' : (canal == _channelRappel ? 'Rappels de départ' : 'Alertes Kelegance'),
+          importance: nouvelleCourse ? Importance.max : Importance.high,
           priority: Priority.high,
+          playSound: true,
+          sound: nouvelleCourse
+              ? const RawResourceAndroidNotificationSound(KeleganceAudioAlertes.rawAndroidNouvelleCourse)
+              : null,
         ),
-        iOS: const DarwinNotificationDetails(),
+        iOS: DarwinNotificationDetails(
+          presentAlert: true,
+          presentSound: true,
+          sound: nouvelleCourse ? KeleganceAudioAlertes.sonIosNouvelleCourse : null,
+        ),
       ),
     );
   }

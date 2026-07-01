@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 
 import 'kelegance_bon_commande_service.dart';
 import 'kelegance_factures_service.dart';
+import 'kelegance_latence_tracer.dart';
 import 'kelegance_missions_service.dart';
 import 'kelegance_notification_service.dart';
 import 'kelegance_presence_service.dart';
@@ -17,6 +18,7 @@ Future<void> keleganceSynchroniserServicesLiveAvecAuth(User? user) async {
     await KelegancePresenceService.arreter();
     await KeleganceBonCommandeService.arreter();
     await KeleganceNotificationService.arreter();
+    KeleganceLatenceTracer.reinitialiserSession();
     return;
   }
   KeleganceMissionsService.demarrer();

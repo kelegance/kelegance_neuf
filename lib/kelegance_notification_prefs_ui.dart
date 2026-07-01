@@ -1,8 +1,10 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 
 import 'kelegance_missions_service.dart';
 import 'kelegance_notification_prefs.dart';
 import 'kelegance_notification_service.dart';
+import 'kelegance_profil_chauffeur_stream.dart';
 
 /// Écran plein format — préférences notifications (depuis Paramètres).
 class KeleganceEcranPreferencesNotifications extends StatelessWidget {
@@ -49,11 +51,7 @@ class KeleganceEcranPreferencesNotifications extends StatelessWidget {
                 ],
               ),
               const SizedBox(height: 6),
-              Text(
-                'Alertes push et locales — synchronisées avec votre compte',
-                textAlign: TextAlign.center,
-                style: TextStyle(color: Colors.white.withOpacity(0.45), fontSize: 11),
-              ),
+              const KeleganceEnteteProfilNotifications(),
               const SizedBox(height: 22),
               Container(
                 padding: const EdgeInsets.all(16),
@@ -71,6 +69,77 @@ class KeleganceEcranPreferencesNotifications extends StatelessWidget {
           ),
         ),
       ),
+    );
+  }
+}
+
+/// En-tête profil — nom + cloche depuis Firestore (`users` / `chauffeurs`).
+class KeleganceEnteteProfilNotifications extends StatelessWidget {
+  const KeleganceEnteteProfilNotifications({super.key});
+
+  static const Color _or = Color(0xFFD4AF37);
+
+  @override
+  Widget build(BuildContext context) {
+    return StreamBuilder<KeleganceProfilChauffeurSnapshot>(
+      stream: KeleganceProfilChauffeurStream.ecouter(),
+      builder: (context, snap) {
+        final profil = snap.data;
+        final userName = profil?.nom;
+        final chargement = profil == null || profil.chargement;
+        final notifActives = profil?.notificationPrefs?['nouvelleMission'] != false;
+
+        if (kDebugMode) {
+          debugPrint(
+            'KeleganceNotifUI — uid=${profil?.uid} nom=$userName chargement=$chargement erreur=${profil?.erreur}',
+          );
+        }
+
+        final nomAffiche = chargement || userName == null ? 'Chargement…' : userName;
+
+        return Container(
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+          decoration: BoxDecoration(
+            color: const Color(0xFF0D0D0D),
+            borderRadius: BorderRadius.circular(12),
+            border: Border.all(color: _or.withOpacity(0.28)),
+          ),
+          child: Row(
+            children: [
+              Icon(
+                notifActives ? Icons.notifications_active_outlined : Icons.notifications_off_outlined,
+                color: _or.withOpacity(0.9),
+                size: 26,
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      nomAffiche,
+                      style: const TextStyle(color: Colors.white, fontSize: 15, fontWeight: FontWeight.w500),
+                    ),
+                    const SizedBox(height: 2),
+                    Text(
+                      profil?.email ?? 'Synchronisation du profil…',
+                      style: TextStyle(color: Colors.white.withOpacity(0.45), fontSize: 10),
+                    ),
+                    if (profil?.erreur != null)
+                      Padding(
+                        padding: const EdgeInsets.only(top: 4),
+                        child: Text(
+                          'Lecture profil : ${profil!.erreur}',
+                          style: TextStyle(color: Colors.redAccent.withOpacity(0.85), fontSize: 9),
+                        ),
+                      ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        );
+      },
     );
   }
 }
@@ -104,11 +173,14 @@ class _KelegancePreferencesNotificationsState extends State<KelegancePreferences
 
   Future<void> _charger() async {
     final prefs = await KeleganceNotificationPrefs.charger();
+    final profil = await KeleganceProfilChauffeurStream.charger();
+    final distant = profil.notificationPrefs;
+
     if (!mounted) return;
     setState(() {
-      _nouvelleMission = prefs.nouvelleMission;
-      _rappelDepart1h = prefs.rappelDepart1h;
-      _facturePayee = prefs.facturePayee;
+      _nouvelleMission = distant?['nouvelleMission'] as bool? ?? prefs.nouvelleMission;
+      _rappelDepart1h = distant?['rappelDepart1h'] as bool? ?? prefs.rappelDepart1h;
+      _facturePayee = distant?['facturePayee'] as bool? ?? prefs.facturePayee;
       _chargement = false;
     });
   }
@@ -142,61 +214,61 @@ class _KelegancePreferencesNotificationsState extends State<KelegancePreferences
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-        if (widget.afficherEntete) ...[
-          Text(
-            'Préférences de notifications',
-            style: TextStyle(color: Colors.white.withOpacity(0.7), fontSize: 12),
+          if (widget.afficherEntete) ...[
+            Text(
+              'Préférences de notifications',
+              style: TextStyle(color: Colors.white.withOpacity(0.7), fontSize: 12),
+            ),
+            const SizedBox(height: 4),
+            Text(
+              'Alertes push et locales — synchronisées avec le serveur',
+              style: TextStyle(color: Colors.white.withOpacity(0.38), fontSize: 10),
+            ),
+            const SizedBox(height: 12),
+          ],
+          SwitchListTile(
+            contentPadding: EdgeInsets.zero,
+            title: const Text('Nouvelle mission', style: TextStyle(color: Colors.white, fontSize: 13)),
+            subtitle: Text(
+              'Dès qu\'une course vous est assignée (Roissy, Guyancourt…)',
+              style: TextStyle(color: Colors.white.withOpacity(0.45), fontSize: 10),
+            ),
+            value: _nouvelleMission,
+            activeColor: widget.couleurAccent,
+            onChanged: (v) => _maj(nouvelleMission: v),
           ),
-          const SizedBox(height: 4),
-          Text(
-            'Alertes push et locales — synchronisées avec le serveur',
-            style: TextStyle(color: Colors.white.withOpacity(0.38), fontSize: 10),
-          ),
-          const SizedBox(height: 12),
-        ],
-        SwitchListTile(
-          contentPadding: EdgeInsets.zero,
-          title: const Text('Nouvelle mission', style: TextStyle(color: Colors.white, fontSize: 13)),
-          subtitle: Text(
-            'Dès qu\'une course vous est assignée (Roissy, Guyancourt…)',
-            style: TextStyle(color: Colors.white.withOpacity(0.45), fontSize: 10),
-          ),
-          value: _nouvelleMission,
-          activeColor: widget.couleurAccent,
-          onChanged: (v) => _maj(nouvelleMission: v),
-        ),
-        const Divider(color: Colors.white12, height: 20),
-        SwitchListTile(
-          contentPadding: EdgeInsets.zero,
-          title: const Text('Rappel de départ (1 h)', style: TextStyle(color: Colors.white, fontSize: 13)),
-          subtitle: Text(
-            'Notification 1 h avant chaque transfert planifié',
-            style: TextStyle(color: Colors.white.withOpacity(0.45), fontSize: 10),
-          ),
-          value: _rappelDepart1h,
-          activeColor: widget.couleurAccent,
-          onChanged: (v) async {
-            await _maj(rappelDepart1h: v);
-            if (v) {
-              final snap = KeleganceMissionsService.cache;
-              if (snap != null) {
-                await KeleganceNotificationService.synchroniserRappelsDepart(snap.docs);
+          const Divider(color: Colors.white12, height: 20),
+          SwitchListTile(
+            contentPadding: EdgeInsets.zero,
+            title: const Text('Rappel de départ (1 h)', style: TextStyle(color: Colors.white, fontSize: 13)),
+            subtitle: Text(
+              'Notification 1 h avant chaque transfert planifié',
+              style: TextStyle(color: Colors.white.withOpacity(0.45), fontSize: 10),
+            ),
+            value: _rappelDepart1h,
+            activeColor: widget.couleurAccent,
+            onChanged: (v) async {
+              await _maj(rappelDepart1h: v);
+              if (v) {
+                final snap = KeleganceMissionsService.cache;
+                if (snap != null) {
+                  await KeleganceNotificationService.synchroniserRappelsDepart(snap.docs);
+                }
               }
-            }
-          },
-        ),
-        const Divider(color: Colors.white12, height: 20),
-        SwitchListTile(
-          contentPadding: EdgeInsets.zero,
-          title: const Text('Facture payée', style: TextStyle(color: Colors.white, fontSize: 13)),
-          subtitle: Text(
-            'Quand une facture passe au statut Payée (Bras Droit)',
-            style: TextStyle(color: Colors.white.withOpacity(0.45), fontSize: 10),
+            },
           ),
-          value: _facturePayee,
-          activeColor: widget.couleurAccent,
-          onChanged: (v) => _maj(facturePayee: v),
-        ),
+          const Divider(color: Colors.white12, height: 20),
+          SwitchListTile(
+            contentPadding: EdgeInsets.zero,
+            title: const Text('Facture payée', style: TextStyle(color: Colors.white, fontSize: 13)),
+            subtitle: Text(
+              'Quand une facture passe au statut Payée (Bras Droit)',
+              style: TextStyle(color: Colors.white.withOpacity(0.45), fontSize: 10),
+            ),
+            value: _facturePayee,
+            activeColor: widget.couleurAccent,
+            onChanged: (v) => _maj(facturePayee: v),
+          ),
         ],
       ),
     );
