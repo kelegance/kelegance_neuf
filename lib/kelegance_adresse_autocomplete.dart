@@ -40,11 +40,15 @@ class _KeleganceAdresseAutocompleteState extends State<KeleganceAdresseAutocompl
   int _generation = 0;
   bool _chargementEnCours = false;
   bool _selectionEnCours = false;
+  /// Masque la liste pour prioriser la saisie clavier (2e tap sur le champ).
+  bool _masquerSuggestions = false;
 
-  bool get _panneauVisible =>
-      _focusNode.hasFocus &&
+  bool get _peutAfficherSuggestions =>
       !_selectionEnCours &&
+      !_masquerSuggestions &&
       (widget.controller.text.trim().length >= 2 || _chargementEnCours);
+
+  bool get _panneauVisible => _focusNode.hasFocus && _peutAfficherSuggestions;
 
   @override
   void initState() {
@@ -63,19 +67,28 @@ class _KeleganceAdresseAutocompleteState extends State<KeleganceAdresseAutocompl
     super.dispose();
   }
 
+  void _afficherClavier() {
+    if (!_focusNode.hasFocus) {
+      _focusNode.requestFocus();
+    }
+    SystemChannels.textInput.invokeMethod<void>('TextInput.show');
+  }
+
   void _onFocusChanged() {
     if (_selectionEnCours) return;
     setState(() {});
 
     if (_focusNode.hasFocus) {
       _fermetureListe?.cancel();
+      _afficherClavier();
       final query = widget.controller.text.trim();
-      if (query.length >= 2) {
+      if (query.length >= 2 && !_masquerSuggestions) {
         unawaited(_chargerSuggestions(query));
       }
       return;
     }
 
+    _masquerSuggestions = false;
     _fermetureListe?.cancel();
     _fermetureListe = Timer(const Duration(milliseconds: 350), () {
       if (!mounted || _selectionEnCours || _focusNode.hasFocus) return;
@@ -88,6 +101,9 @@ class _KeleganceAdresseAutocompleteState extends State<KeleganceAdresseAutocompl
 
   void _onTextChanged() {
     if (_selectionEnCours) return;
+    if (_masquerSuggestions) {
+      setState(() => _masquerSuggestions = false);
+    }
     widget.onEdited?.call();
     _debounce?.cancel();
     _debounce = Timer(const Duration(milliseconds: 280), () {
@@ -230,12 +246,20 @@ class _KeleganceAdresseAutocompleteState extends State<KeleganceAdresseAutocompl
         TextField(
           controller: widget.controller,
           focusNode: _focusNode,
+          enabled: true,
+          enableInteractiveSelection: true,
+          keyboardType: TextInputType.streetAddress,
+          textInputAction: TextInputAction.done,
           style: widget.style ?? const TextStyle(color: Colors.white),
           decoration: widget.decoration ?? _decorationParDefaut(),
           onTap: () {
-            if (!_focusNode.hasFocus) {
-              _focusNode.requestFocus();
+            if (_focusNode.hasFocus && _peutAfficherSuggestions) {
+              setState(() => _masquerSuggestions = true);
+              _afficherClavier();
+              return;
             }
+            _masquerSuggestions = false;
+            _afficherClavier();
             final query = widget.controller.text.trim();
             if (query.length >= 2) {
               unawaited(_chargerSuggestions(query));
