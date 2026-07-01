@@ -895,6 +895,7 @@ abstract final class KeleganceGestionReservations {
 
     showDialog<void>(
       context: context,
+      barrierDismissible: true,
       builder: (ctx) => AlertDialog(
         backgroundColor: Colors.grey[900],
         title: const Text('Modifier la réservation', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
@@ -912,17 +913,27 @@ abstract final class KeleganceGestionReservations {
                 style: const TextStyle(color: Colors.white),
                 decoration: const InputDecoration(labelText: 'Heure', labelStyle: TextStyle(color: Colors.white60)),
               ),
-              KeleganceAdresseAutocomplete(
+              TextField(
                 controller: departCtrl,
-                labelText: 'Lieu de prise en charge',
+                enabled: true,
+                keyboardType: TextInputType.streetAddress,
+                textInputAction: TextInputAction.next,
                 style: const TextStyle(color: Colors.white),
-                decoration: const InputDecoration(labelText: 'Lieu de prise en charge', labelStyle: TextStyle(color: Colors.white60)),
+                decoration: const InputDecoration(
+                  labelText: 'Lieu de prise en charge',
+                  labelStyle: TextStyle(color: Colors.white60),
+                ),
               ),
-              KeleganceAdresseAutocomplete(
+              TextField(
                 controller: destCtrl,
-                labelText: 'Destination',
+                enabled: true,
+                keyboardType: TextInputType.streetAddress,
+                textInputAction: TextInputAction.next,
                 style: const TextStyle(color: Colors.white),
-                decoration: const InputDecoration(labelText: 'Destination', labelStyle: TextStyle(color: Colors.white60)),
+                decoration: const InputDecoration(
+                  labelText: 'Destination',
+                  labelStyle: TextStyle(color: Colors.white60),
+                ),
               ),
               TextField(
                 controller: noteCtrl,
@@ -934,7 +945,17 @@ abstract final class KeleganceGestionReservations {
           ),
         ),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Fermer', style: TextStyle(color: Colors.white54))),
+          TextButton(
+            onPressed: () {
+              dateCtrl.dispose();
+              heureCtrl.dispose();
+              departCtrl.dispose();
+              destCtrl.dispose();
+              noteCtrl.dispose();
+              Navigator.pop(ctx);
+            },
+            child: const Text('Fermer', style: TextStyle(color: Colors.white54)),
+          ),
           TextButton(
             onPressed: () async {
               await FirebaseFirestore.instance.collection('missions').doc(docId).update({
@@ -945,6 +966,11 @@ abstract final class KeleganceGestionReservations {
                 'note': noteCtrl.text.trim(),
                 'modifieLe': FieldValue.serverTimestamp(),
               });
+              dateCtrl.dispose();
+              heureCtrl.dispose();
+              departCtrl.dispose();
+              destCtrl.dispose();
+              noteCtrl.dispose();
               if (ctx.mounted) Navigator.pop(ctx);
               if (context.mounted) {
                 ScaffoldMessenger.of(context).showSnackBar(

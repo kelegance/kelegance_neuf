@@ -35,6 +35,8 @@ abstract final class KeleganceMissionsService {
   static StreamSubscription<QuerySnapshot<Map<String, dynamic>>>? _abonnementFirestore;
   static bool _premierChargement = true;
   static KeleganceMissionsSnapshot? _cache;
+  static Timer? _debounceFlux;
+  static KeleganceMissionsSnapshot? _enAttenteFlux;
 
   static Stream<KeleganceMissionsSnapshot> get flux => _flux.stream;
 
@@ -63,11 +65,22 @@ abstract final class KeleganceMissionsService {
         );
         _premierChargement = false;
         _cache = instantane;
-        derniereMiseAJour.value = instantane.recuLe;
-        if (!_flux.isClosed) {
-          _flux.add(instantane);
+        if (instantane.premierChargement) {
+          derniereMiseAJour.value = instantane.recuLe;
+          if (!_flux.isClosed) _flux.add(instantane);
+          return;
         }
-        unawaited(KeleganceLatenceTracer.traiterSnapshotMissions(instantane));
+        _enAttenteFlux = instantane;
+        _debounceFlux?.cancel();
+        _debounceFlux = Timer(const Duration(milliseconds: 180), () {
+          final aPublier = _enAttenteFlux;
+          if (aPublier == null || _flux.isClosed) return;
+          derniereMiseAJour.value = aPublier.recuLe;
+          _flux.add(aPublier);
+          if (aPublier.changes.isNotEmpty) {
+            unawaited(KeleganceLatenceTracer.traiterSnapshotMissions(aPublier));
+          }
+        });
       },
       onError: (Object e) {
         if (kDebugMode) debugPrint('KeleganceMissionsService: $e');
@@ -80,6 +93,9 @@ abstract final class KeleganceMissionsService {
   }
 
   static Future<void> arreter() async {
+    _debounceFlux?.cancel();
+    _debounceFlux = null;
+    _enAttenteFlux = null;
     await _abonnementFirestore?.cancel();
     _abonnementFirestore = null;
     _premierChargement = true;

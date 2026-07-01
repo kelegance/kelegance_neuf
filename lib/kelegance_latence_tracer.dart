@@ -17,8 +17,6 @@ abstract final class KeleganceLatenceTracer {
 
   static void log(String message) {
     if (kDebugMode) debugPrint('$_tag — $message');
-    // ignore: avoid_print
-    print('$_tag — $message');
   }
 
   /// Appelé côté admin avant/après validation ou dispatch.

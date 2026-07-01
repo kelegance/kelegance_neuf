@@ -2,7 +2,7 @@ name: kelegance_neuf
 description: "Projet Kélégance - VTC"
 publish_to: 'none'
 
-version: 1.1.1+17
+version: 1.1.1+18
 
 environment:
   sdk: ^3.11.5

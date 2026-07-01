@@ -1,11 +1,10 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 
 import 'kelegance_places_service.dart';
 
-/// Champ d'adresse avec suggestions Google Places — liste inline (fiable sur Android).
+/// Champ d'adresse avec suggestions Google Places — liste inline (hors formulaires critiques).
 class KeleganceAdresseAutocomplete extends StatefulWidget {
   const KeleganceAdresseAutocomplete({
     super.key,
@@ -36,97 +35,56 @@ class _KeleganceAdresseAutocompleteState extends State<KeleganceAdresseAutocompl
   final FocusNode _focusNode = FocusNode();
   List<String> _suggestions = [];
   Timer? _debounce;
-  Timer? _fermetureListe;
   int _generation = 0;
   bool _chargementEnCours = false;
   bool _selectionEnCours = false;
-  /// Masque la liste pour prioriser la saisie clavier (2e tap sur le champ).
-  bool _masquerSuggestions = false;
 
-  bool get _peutAfficherSuggestions =>
+  bool get _panneauVisible =>
+      _focusNode.hasFocus &&
       !_selectionEnCours &&
-      !_masquerSuggestions &&
-      (widget.controller.text.trim().length >= 2 || _chargementEnCours);
-
-  bool get _panneauVisible => _focusNode.hasFocus && _peutAfficherSuggestions;
+      _suggestions.isNotEmpty;
 
   @override
   void initState() {
     super.initState();
     widget.controller.addListener(_onTextChanged);
-    _focusNode.addListener(_onFocusChanged);
   }
 
   @override
   void dispose() {
     _debounce?.cancel();
-    _fermetureListe?.cancel();
     widget.controller.removeListener(_onTextChanged);
-    _focusNode.removeListener(_onFocusChanged);
     _focusNode.dispose();
     super.dispose();
   }
 
-  void _afficherClavier() {
-    if (!_focusNode.hasFocus) {
-      _focusNode.requestFocus();
-    }
-    SystemChannels.textInput.invokeMethod<void>('TextInput.show');
-  }
-
-  void _onFocusChanged() {
-    if (_selectionEnCours) return;
-    setState(() {});
-
-    if (_focusNode.hasFocus) {
-      _fermetureListe?.cancel();
-      _afficherClavier();
-      final query = widget.controller.text.trim();
-      if (query.length >= 2 && !_masquerSuggestions) {
-        unawaited(_chargerSuggestions(query));
-      }
-      return;
-    }
-
-    _masquerSuggestions = false;
-    _fermetureListe?.cancel();
-    _fermetureListe = Timer(const Duration(milliseconds: 350), () {
-      if (!mounted || _selectionEnCours || _focusNode.hasFocus) return;
-      setState(() {
-        _suggestions = [];
-        _chargementEnCours = false;
-      });
-    });
-  }
-
   void _onTextChanged() {
     if (_selectionEnCours) return;
-    if (_masquerSuggestions) {
-      setState(() => _masquerSuggestions = false);
-    }
     widget.onEdited?.call();
     _debounce?.cancel();
-    _debounce = Timer(const Duration(milliseconds: 280), () {
+    _debounce = Timer(const Duration(milliseconds: 500), () {
       unawaited(_chargerSuggestions(widget.controller.text));
     });
   }
 
   Future<void> _chargerSuggestions(String text) async {
     final query = text.trim();
-    if (query.length < 2) {
+    if (query.length < 3 || !_focusNode.hasFocus) {
       if (!mounted) return;
-      setState(() {
-        _suggestions = [];
-        _chargementEnCours = false;
-      });
+      if (_suggestions.isNotEmpty || _chargementEnCours) {
+        setState(() {
+          _suggestions = [];
+          _chargementEnCours = false;
+        });
+      }
       return;
     }
 
     final generation = ++_generation;
-    if (mounted) setState(() => _chargementEnCours = true);
+    if (mounted && !_chargementEnCours) setState(() => _chargementEnCours = true);
 
     final results = await KelegancePlacesService.rechercherSuggestions(query);
-    if (!mounted || generation != _generation || _selectionEnCours) return;
+    if (!mounted || generation != _generation || _selectionEnCours || !_focusNode.hasFocus) return;
 
     setState(() {
       _suggestions = results;
@@ -139,10 +97,6 @@ class _KeleganceAdresseAutocompleteState extends State<KeleganceAdresseAutocompl
 
     _selectionEnCours = true;
     _debounce?.cancel();
-    _fermetureListe?.cancel();
-    FocusManager.instance.primaryFocus?.unfocus();
-    SystemChannels.textInput.invokeMethod<void>('TextInput.hide');
-
     widget.controller.text = adresse;
     widget.controller.selection = TextSelection.collapsed(offset: adresse.length);
     widget.onSelected?.call(adresse);
@@ -152,9 +106,7 @@ class _KeleganceAdresseAutocompleteState extends State<KeleganceAdresseAutocompl
       _chargementEnCours = false;
     });
 
-    _focusNode.unfocus();
-
-    Future<void>.delayed(const Duration(milliseconds: 120), () {
+    Future<void>.delayed(const Duration(milliseconds: 80), () {
       if (mounted) setState(() => _selectionEnCours = false);
     });
   }
@@ -191,26 +143,6 @@ class _KeleganceAdresseAutocompleteState extends State<KeleganceAdresseAutocompl
   }
 
   Widget _buildListeSuggestions() {
-    if (_chargementEnCours && _suggestions.isEmpty) {
-      return const Center(
-        child: SizedBox(
-          width: 22,
-          height: 22,
-          child: CircularProgressIndicator(strokeWidth: 2, color: Colors.amber),
-        ),
-      );
-    }
-
-    if (_suggestions.isEmpty) {
-      return Center(
-        child: Text(
-          'Aucune suggestion — vérifiez Places API sur la clé Android',
-          textAlign: TextAlign.center,
-          style: TextStyle(color: Colors.white.withOpacity(0.35), fontSize: 11),
-        ),
-      );
-    }
-
     return ListView.separated(
       padding: EdgeInsets.zero,
       physics: const ClampingScrollPhysics(),
@@ -218,20 +150,17 @@ class _KeleganceAdresseAutocompleteState extends State<KeleganceAdresseAutocompl
       separatorBuilder: (_, __) => const Divider(height: 1, color: Colors.white12),
       itemBuilder: (_, index) {
         final suggestion = _suggestions[index];
-        return Listener(
-          behavior: HitTestBehavior.opaque,
-          onPointerDown: (_) => selectionnerAdresse(suggestion),
-          child: ListTile(
-            dense: true,
-            visualDensity: VisualDensity.compact,
-            leading: const Icon(Icons.place_outlined, color: Colors.amber, size: 18),
-            title: Text(
-              suggestion,
-              style: const TextStyle(color: Colors.white, fontSize: 13),
-              maxLines: 2,
-              overflow: TextOverflow.ellipsis,
-            ),
+        return ListTile(
+          dense: true,
+          visualDensity: VisualDensity.compact,
+          leading: const Icon(Icons.place_outlined, color: Colors.amber, size: 18),
+          title: Text(
+            suggestion,
+            style: const TextStyle(color: Colors.white, fontSize: 13),
+            maxLines: 2,
+            overflow: TextOverflow.ellipsis,
           ),
+          onTap: () => selectionnerAdresse(suggestion),
         );
       },
     );
@@ -247,29 +176,21 @@ class _KeleganceAdresseAutocompleteState extends State<KeleganceAdresseAutocompl
           controller: widget.controller,
           focusNode: _focusNode,
           enabled: true,
-          enableInteractiveSelection: true,
           keyboardType: TextInputType.streetAddress,
-          textInputAction: TextInputAction.done,
+          textInputAction: TextInputAction.next,
           style: widget.style ?? const TextStyle(color: Colors.white),
           decoration: widget.decoration ?? _decorationParDefaut(),
-          onTap: () {
-            if (_focusNode.hasFocus && _peutAfficherSuggestions) {
-              setState(() => _masquerSuggestions = true);
-              _afficherClavier();
-              return;
-            }
-            _masquerSuggestions = false;
-            _afficherClavier();
-            final query = widget.controller.text.trim();
-            if (query.length >= 2) {
-              unawaited(_chargerSuggestions(query));
+          onTapOutside: (_) {
+            _focusNode.unfocus();
+            if (_suggestions.isNotEmpty) {
+              setState(() => _suggestions = []);
             }
           },
         ),
         if (_panneauVisible) ...[
           const SizedBox(height: 6),
           Material(
-            elevation: 6,
+            elevation: 4,
             borderRadius: BorderRadius.circular(8),
             color: const Color(0xFF1A2332),
             clipBehavior: Clip.antiAlias,
